@@ -232,8 +232,21 @@ async def lst(m: Message):
 @router.message(Command("del"))
 async def dele(m: Message):
     if not adm(m.from_user.id): return
-    q("UPDATE products SET active=0 WHERE id=?", (int(m.text.split()[1]),))
-    await m.answer("Deleted")
+    try:
+        parts = m.text.split()
+        if len(parts) < 2:
+            return await m.answer("⚠️ Please provide product ID. Eg: `/del 1`")
+        product_id = int(parts[1])
+        
+        # Permanent delete from stock and products tables
+        q("DELETE FROM stock WHERE product_id=?", (product_id,))
+        q("DELETE FROM products WHERE id=?", (product_id,))
+        
+        await m.answer(f"✅ Product #{product_id} permanently deleted.")
+    except ValueError:
+        await m.answer("⚠️ Invalid ID. Please use a number. Eg: `/del 1`")
+    except Exception as e:
+        await m.answer(f"❌ Error: {e}")
 
 @router.message(Command("broadcast"))
 async def bc(m: Message):
@@ -241,6 +254,7 @@ async def bc(m: Message):
     txt = m.text.replace("/broadcast", "").strip(); n = 0
     for u in q("SELECT id FROM users"):
         try: await m.bot.send_message(u["id"], txt); n += 1
+        existing_error = True
         except: pass
     await m.answer(f"അയച്ചു: {n}")
 
