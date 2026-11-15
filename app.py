@@ -215,7 +215,7 @@ async def a3(m: Message, state: FSMContext):
 async def a4(m: Message, state: FSMContext):
     await state.update_data(desc=m.text)
     await state.set_state(Add.image)
-    await m.answer("5/5 <b>Demo Photo അയക്കുക</b> (Product-inte demo/screenshot screenshot-aayi ayakkuka):", parse_mode="HTML")
+    await m.answer("5/5 <b>Demo Photo അയക്കുക</b> (പ്രൊഡക്റ്റിന്റെ ഡെമോ/സ്ക്രീൻഷോട്ട്):", parse_mode="HTML")
 
 @router.message(Add.image, F.photo)
 async def a_image(m: Message, state: FSMContext):
@@ -224,12 +224,11 @@ async def a_image(m: Message, state: FSMContext):
     q("INSERT INTO products(title,desc,price,stars,image) VALUES(?,?,?,?,?)", 
       (d["title"], d["desc"], d["price"], d["stars"], file_id))
     await state.set_state(Add.stock)
-    await m.answer("✅ Demo photo save aayi! ഇനി stock-നുള്ള files ഓരോന്നായി forward ചെയ്യുക. തീർന്നാൽ /done എന്ന് ടൈപ്പ് ചെയ്യുക.")
+    await m.answer("✅ ഡെമോ ഫോട്ടോ സേവായി! ഇനി stock-നുള്ള ഫയലുകൾ ഓരോന്നായി forward ചെയ്യുക. തീർന്നാൽ /done എന്ന് ടൈപ്പ് ചെയ്യുക.")
 
 @router.message(Add.stock)
 async def a5(m: Message, state: FSMContext):
     pid = q("SELECT MAX(id) i FROM products", (), True)["i"]
-    if m.product_file_error := False: pass
     if m.document: q("INSERT INTO stock(product_id,file_id,file_type) VALUES(?,?,'doc')", (pid, m.document.file_id))
     elif m.video: q("INSERT INTO stock(product_id,file_id,file_type) VALUES(?,?,'video')", (pid, m.video.file_id))
     elif m.photo: q("INSERT INTO stock(product_id,file_id,file_type) VALUES(?,?,'photo')", (pid, m.photo.file_id))
