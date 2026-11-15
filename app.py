@@ -41,12 +41,23 @@ adm = lambda uid: uid in ADMIN_IDS
 @router.message(Command("start"))
 async def start(m: Message):
     q("INSERT OR IGNORE INTO users VALUES(?,?)", (m.from_user.id, m.from_user.first_name))
+    
+    # Bot enthu group/store aanu ennulla description / caption
+    welcome_text = (
+        f"<b>സ്വാഗതം {m.from_user.first_name}! 👋</b>\n\n"
+        "🛍 <b>ഇത് ഡിജിറ്റൽ പ്രൊഡക്റ്റുകളും ഫയലുകളും എളുപ്പത്തിൽ വാങ്ങാനുള്ള സ്റ്റോർ ആണ്.</b>\n"
+        "• വിശ്വസ്തതയോടെ പ്രൊഡക്റ്റുകൾ ബ്രൗസ് ചെയ്ത് വാങ്ങാം.\n"
+        "• UPI അല്ലെങ്കിൽ Telegram Stars വഴി പേയ്മെന്റ് നടത്താം.\n"
+        "• പെയ്മെന്റ് പൂർത്തിയായാൽ ഫയലുകൾ ഓട്ടോമാറ്റിക്കായി ഡെലിവറി ലഭിക്കും.\n\n"
+        "താഴെ കാണുന്ന ഓപ്ഷനുകൾ ഉപയോഗിക്കുക 👇"
+    )
+    
     kb = InlineKeyboardBuilder()
     kb.button(text="🛍 Shop", callback_data="shop")
     kb.button(text="📦 My Orders", callback_data="orders")
     if adm(m.from_user.id): kb.button(text="⚙️ Admin", callback_data="admin")
     kb.adjust(2)
-    await m.answer(f"<b>സ്വാഗതം {m.from_user.first_name}!</b>\nതാഴെ നിന്ന് വാങ്ങാം 👇", parse_mode="HTML", reply_markup=kb.as_markup())
+    await m.answer(welcome_text, parse_mode="HTML", reply_markup=kb.as_markup())
 
 @router.callback_query(F.data == "shop")
 async def shop(c: CallbackQuery):
@@ -66,7 +77,12 @@ async def home(c: CallbackQuery):
     kb.button(text="📦 My Orders", callback_data="orders")
     if adm(c.from_user.id): kb.button(text="⚙️ Admin", callback_data="admin")
     kb.adjust(2)
-    await c.message.edit_text("Menu 👇", reply_markup=kb.as_markup())
+    
+    welcome_text = (
+        "🛍 <b>ഡിജിറ്റൽ സ്റ്റോർ മെനു:</b>\n"
+        "താഴെ നിന്ന് ആവശ്യമായത് തിരഞ്ഞെടുക്കുക 👇"
+    )
+    await c.message.edit_text(welcome_text, parse_mode="HTML", reply_markup=kb.as_markup())
 
 @router.callback_query(F.data.startswith("p:"))
 async def product(c: CallbackQuery):
@@ -192,7 +208,7 @@ async def admin(c: CallbackQuery):
     if not adm(c.from_user.id): return
     total = q("SELECT COUNT(*) c FROM orders WHERE status IN ('paid','delivered')", (), True)["c"]
     rev = q("SELECT COALESCE(SUM(amount),0) s FROM orders WHERE status IN ('paid','delivered')", (), True)["s"]
-    await c.message.answer(f"<b>Admin</b>\nSales: {total}\nRevenue: ₹{rev}\n\n/addproduct — പുതിയ product\n/list — products\n/del &lt;id&gt; — delete\n/broadcast &lt;msg&gt; — അയക്കൽ", parse_mode="HTML")
+    await c.message.answer(f"<b>Admin Panel</b>\nSales: {total}\nRevenue: ₹{rev}\n\n/addproduct — പുതിയ product\n/list — products\n/del &lt;id&gt; — delete\n/clearall — എല്ലാ data-യും കളയാൻ\n/broadcast &lt;msg&gt; — അയക്കൽ", parse_mode="HTML")
 
 @router.message(Command("addproduct"))
 async def addp(m: Message, state: FSMContext):
@@ -258,6 +274,14 @@ async def dele(m: Message):
         await m.answer(f"✅ Product #{product_id} permanently deleted.")
     except Exception as e:
         await m.answer(f"❌ Error: {e}")
+
+@router.message(Command("clearall"))
+async def clear_all(m: Message):
+    if not adm(m.from_user.id): return
+    q("DELETE FROM products")
+    q("DELETE FROM stock")
+    q("DELETE FROM orders")
+    await m.answer("🗑 എല്ലാ പ്രൊഡക്റ്റുകളും സ്റ്റോപ്പുകളും ഓർഡറുകളും വിജയകരമായി ക്ലിയർ ചെയ്തു!")
 
 @router.message(Command("broadcast"))
 async def bc(m: Message):
