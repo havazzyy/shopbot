@@ -71,40 +71,55 @@ async def start(m: Message):
                 pass
     
     welcome_text = (
-        f"<b>Welcome, {m.from_user.first_name}! 👋</b>\n\n"
-        "👑 <b>Welcome to our Exclusive Premium Group Store.</b>\n"
-        "• Browse individual groups & Combo Bundles.\n"
-        "• Pay securely via UPI or Telegram Stars.\n"
-        "• Invite friends and earn <b>Free Access</b>!\n"
-        "• Need help? Contact our <b>Live Support</b> anytime.\n\n"
-        "Please choose an option below 👇"
+        "✨ <b>WELCOME TO</b>\n"
+        "<b>APOCALYPSE — PREMIUM SUBSCRIPTION STORE</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "▸ <b>EXPLORE THE STORE</b>\n"
+        "Browse our available subscriptions and choose the plan that suits you best.\n\n"
+        "▸ <b>DISCOUNTS</b>\n"
+        "Apply discount coupons or referral discounts to unlock the best available prices.\n\n"
+        "▸ <b>HELP & SUPPORT</b>\n"
+        "Facing an issue or need assistance? Our support section is here to help.\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Thank you for choosing <b>APOCALYPSE</b>.\n"
+        "Enjoy a premium experience. ✦"
     )
     
     kb = InlineKeyboardBuilder()
-    kb.button(text="🛍 Browse Groups", callback_data="shop")
+    kb.button(text="🛍 Explore the Store", callback_data="shop")
     kb.button(text="🔥 Combo Bundles", callback_data="bundles")
-    kb.button(text="🎁 Free / Referral", callback_data="referral")
+    kb.button(text="🎁 Discounts / Referral", callback_data="referral")
     kb.button(text="📦 My Orders", callback_data="orders")
-    kb.button(text="🎧 Live Support", callback_data="support")
+    kb.button(text="🎧 Help & Support", callback_data="support")
     if adm(user_id): kb.button(text="⚙️ Admin Panel", callback_data="admin")
-    kb.adjust(2)
+    kb.adjust(1, 2, 2, 1)
     await m.answer(welcome_text, parse_mode="HTML", reply_markup=kb.as_markup())
 
 @router.callback_query(F.data == "home")
 async def home(c: CallbackQuery):
-    kb = InlineKeyboardBuilder()
-    kb.button(text="🛍 Browse Groups", callback_data="shop")
-    kb.button(text="🔥 Combo Bundles", callback_data="bundles")
-    kb.button(text="🎁 Free / Referral", callback_data="referral")
-    kb.button(text="📦 My Orders", callback_data="orders")
-    kb.button(text="🎧 Live Support", callback_data="support")
-    if adm(c.from_user.id): kb.button(text="⚙️ Admin Panel", callback_data="admin")
-    kb.adjust(2)
-    
     welcome_text = (
-        "👑 <b>Store Menu:</b>\n"
-        "Please choose an option below 👇"
+        "✨ <b>WELCOME TO</b>\n"
+        "<b>APOCALYPSE — PREMIUM SUBSCRIPTION STORE</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "▸ <b>EXPLORE THE STORE</b>\n"
+        "Browse our available subscriptions and choose the plan that suits you best.\n\n"
+        "▸ <b>DISCOUNTS</b>\n"
+        "Apply discount coupons or referral discounts to unlock the best available prices.\n\n"
+        "▸ <b>HELP & SUPPORT</b>\n"
+        "Facing an issue or need assistance? Our support section is here to help.\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Thank you for choosing <b>APOCALYPSE</b>.\n"
+        "Enjoy a premium experience. ✦"
     )
+    
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🛍 Explore the Store", callback_data="shop")
+    kb.button(text="🔥 Combo Bundles", callback_data="bundles")
+    kb.button(text="🎁 Discounts / Referral", callback_data="referral")
+    kb.button(text="📦 My Orders", callback_data="orders")
+    kb.button(text="🎧 Help & Support", callback_data="support")
+    if adm(c.from_user.id): kb.button(text="⚙️ Admin Panel", callback_data="admin")
+    kb.adjust(1, 2, 2, 1)
     await c.message.edit_text(welcome_text, parse_mode="HTML", reply_markup=kb.as_markup())
 
 @router.callback_query(F.data == "support")
@@ -114,8 +129,8 @@ async def support_menu(c: CallbackQuery, state: FSMContext):
     kb.adjust(1)
     await state.set_state(SupportState.message)
     await c.message.edit_text(
-        "🎧 <b>Live Customer Support</b>\n\n"
-        "Please type your issue, question, or payment query below as a single message, and our admin team will reply to you shortly.",
+        "🎧 <b>Help & Support Section</b>\n\n"
+        "Please type your issue, question, or payment query below as a single message, and our support team will reply to you shortly.",
         parse_mode="HTML", reply_markup=kb.as_markup()
     )
 
@@ -179,11 +194,11 @@ async def referral_menu(c: CallbackQuery):
     ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
     
     text = (
-        "🎁 <b>Free Premium Group Referral Program</b>\n\n"
+        "🎁 <b>Discounts & Referral Program</b>\n\n"
         "Want to get access completely <b>FREE</b>? Share your personal invite link with your friends!\n\n"
         f"👥 <b>Your Referrals:</b> {ref_count} / 3 Friends\n\n"
         f"🔗 <b>Your Invite Link:</b>\n<code>{ref_link}</code>\n\n"
-        "<i>Note: Once you successfully invite 3 friends, contact admin with a screenshot to claim your free reward!</i>"
+        "<i>Note: Once you successfully invite 3 friends, contact admin with a screenshot to claim your reward!</i>"
     )
     
     kb = InlineKeyboardBuilder()
@@ -201,7 +216,7 @@ async def shop(c: CallbackQuery):
     kb.button(text="🔥 View Combo Bundles", callback_data="bundles")
     kb.button(text="⬅️ Back to Menu", callback_data="home")
     kb.adjust(1)
-    await c.message.edit_text("<b>Select an individual group:</b>", parse_mode="HTML", reply_markup=kb.as_markup())
+    await c.message.edit_text("<b>Select an available subscription:</b>", parse_mode="HTML", reply_markup=kb.as_markup())
 
 @router.callback_query(F.data == "bundles")
 async def bundles_menu(c: CallbackQuery):
@@ -210,7 +225,7 @@ async def bundles_menu(c: CallbackQuery):
     kb = InlineKeyboardBuilder()
     for r in rows:
         kb.button(text=f"🔥 {r['title']} — ₹{r['price']} (Bundle)", callback_data=f"b:{r['id']}")
-    kb.button(text="🛍 Individual Groups", callback_data="shop")
+    kb.button(text="🛍 Individual Subscriptions", callback_data="shop")
     kb.button(text="⬅️ Back to Menu", callback_data="home")
     kb.adjust(1)
     await c.message.edit_text("🔥 <b>Exclusive Combo Bundles (Save More!):</b>\nSelect a bundle pack below:", parse_mode="HTML", reply_markup=kb.as_markup())
@@ -218,7 +233,7 @@ async def bundles_menu(c: CallbackQuery):
 @router.callback_query(F.data.startswith("p:"))
 async def product(c: CallbackQuery):
     r = q("SELECT * FROM products WHERE id=?", (int(c.data.split(":")[1]),), True)
-    if not r: return await c.answer("Group not found.", show_alert=True)
+    if not r: return await c.answer("Subscription not found.", show_alert=True)
     kb = InlineKeyboardBuilder()
     kb.button(text=f"💳 Pay UPI ₹{r['price']}", callback_data=f"qty:p:{r['id']}")
     kb.button(text=f"⭐ Pay {r['stars']} Stars (Instant)", callback_data=f"star:p:{r['id']}")
@@ -411,9 +426,9 @@ async def admin(c: CallbackQuery):
         f"📅 <b>Today's Revenue:</b> ₹{today_rev}\n"
         "──────────────────────────\n\n"
         "<b>Admin Commands:</b>\n"
-        "/addproduct — Add single group\n"
+        "/addproduct — Add single subscription\n"
         "/addbundle — Add combo bundle pack\n"
-        "/list — View groups inventory\n"
+        "/list — View inventory\n"
         "/broadcast — Send broadcast message"
     )
     
@@ -427,7 +442,7 @@ async def admin(c: CallbackQuery):
 @router.message(Command("addproduct"))
 async def addp(m: Message, state: FSMContext):
     if not adm(m.from_user.id): return
-    await state.set_state(Add.title); await m.answer("1/6 Enter Group Title:")
+    await state.set_state(Add.title); await m.answer("1/6 Enter Subscription Title:")
 
 @router.message(Add.title)
 async def a1(m: Message, state: FSMContext):
@@ -450,7 +465,7 @@ async def a4(m: Message, state: FSMContext):
 async def a_image(m: Message, state: FSMContext):
     await state.update_data(image=m.photo[-1].file_id)
     await state.set_state(Add.link)
-    await m.answer("6/6 Send permanent Group Invite Link as text:", parse_mode="HTML")
+    await m.answer("6/6 Send permanent Invite Link as text:", parse_mode="HTML")
 
 @router.message(Add.link)
 async def a6(m: Message, state: FSMContext):
@@ -458,7 +473,7 @@ async def a6(m: Message, state: FSMContext):
     q("INSERT INTO products(title,desc,price,stars,image,link) VALUES(?,?,?,?,?,?)", 
       (d["title"], d["desc"], d["price"], d["stars"], d["image"], m.text))
     await state.clear()
-    await m.answer("✅ Single Group added successfully!", parse_mode="HTML")
+    await m.answer("✅ Subscription added successfully!", parse_mode="HTML")
 
 @router.message(Command("addbundle"))
 async def add_bundle(m: Message, state: FSMContext):
@@ -502,7 +517,7 @@ async def lst(m: Message):
     rows = q("SELECT * FROM products")
     bundles = q("SELECT * FROM bundles")
     
-    t = "📋 <b>Store Inventory:</b>\n\n<b>[Single Groups]</b>\n"
+    t = "📋 <b>Store Inventory:</b>\n\n<b>[Subscriptions]</b>\n"
     for r in rows:
         t += f"ID: {r['id']} | {r['title']} — ₹{r['price']}\n"
     t += "\n<b>[Combo Bundles]</b>\n"
@@ -528,7 +543,6 @@ async def main():
     app.router.add_get("/", lambda r: web.Response(text="alive"))
     runner = web.AppRunner(app); await runner.setup()
     
-    # Render-ൽ പോർട്ട് കൃത്യമായി റീഡ് ചെയ്യാൻ വേണ്ടി ഇതാണ് ഏറ്റവും സുരക്ഷിതമായ വഴി
     port = int(os.environ.get("PORT", 8080))
     await web.TCPSite(runner, "0.0.0.0", port).start()
     
