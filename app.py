@@ -27,7 +27,7 @@ def init():
     c.executescript("""
     CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY,title TEXT,desc TEXT,price INTEGER,stars INTEGER,image TEXT,link TEXT,active INTEGER DEFAULT 1);
     CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY,user_id INTEGER,product_id INTEGER,qty INTEGER,amount INTEGER,method TEXT,status TEXT DEFAULT 'pending',shot TEXT,created TEXT);
-    CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,name TEXT);
+    CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,name TEXT,referred_by INTEGER,ref_count INTEGER DEFAULT 0);
     """)
     c.commit(); c.close()
 
@@ -39,23 +39,68 @@ adm = lambda uid: uid in ADMIN_IDS
 
 @router.message(Command("start"))
 async def start(m: Message):
-    q("INSERT OR IGNORE INTO users VALUES(?,?)", (m.from_user.id, m.from_user.first_name))
+    args = m.text.split()
+    user_id = m.from_user.id
+    
+    existing = q("SELECT * FROM users WHERE id=?", (user_id,), True)
+    
+    if not existing:
+        ref_by = None
+        if len(args) > 1 and args[1].startswith("ref_"):
+            try:
+                potential_ref = int(args[1].replace("ref_", ""))
+                if potential_ref != user_id:
+                    ref_by = potential_ref
+            except:
+                pass
+        
+        q("INSERT INTO users(id, name, referred_by, ref_count) VALUES(?,?,?,0)", (user_id, m.from_user.first_name, ref_by))
+        
+        if ref_by:
+            q("UPDATE users SET ref_count = ref_count + 1 WHERE id=?", (ref_by,))
+            try:
+                await m.bot.send_message(ref_by, f"🎉 <b>New Referral!</b> Someone joined using your invite link. Keep going to unlock free rewards!")
+            except:
+                pass
     
     welcome_text = (
         f"<b>Welcome, {m.from_user.first_name}! 👋</b>\n\n"
         "👑 <b>Welcome to our Exclusive Premium Group Store.</b>\n"
         "• Browse and select available premium groups.\n"
         "• Pay securely via UPI or Telegram Stars.\n"
-        "• Get instant automated invite links upon successful verification!\n\n"
+        "• Invite friends and earn <b>Free Access</b>!\n\n"
         "Please choose an option below 👇"
     )
     
     kb = InlineKeyboardBuilder()
     kb.button(text="🛍 Browse Groups", callback_data="shop")
+    kb.button(text="🎁 Free / Referral", callback_data="referral")
     kb.button(text="📦 My Orders", callback_data="orders")
-    if adm(m.from_user.id): kb.button(text="⚙️ Admin Panel", callback_data="admin")
+    if adm(user_id): kb.button(text="⚙️ Admin Panel", callback_data="admin")
     kb.adjust(2)
     await m.answer(welcome_text, parse_mode="HTML", reply_markup=kb.as_markup())
+
+@router.callback_query(F.data == "referral")
+async def referral_menu(c: CallbackQuery):
+    user_id = c.from_user.id
+    user_data = q("SELECT * FROM users WHERE id=?", (user_id,), True)
+    ref_count = user_data["ref_count"] if user_data else 0
+    bot_info = await c.bot.get_me()
+    ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
+    
+    text = (
+        "🎁 <b>Free Premium Group Referral Program</b>\n\n"
+        "Want to get access completely <b>FREE</b>? Share your personal invite link with your friends!\n\n"
+        f"👥 <b>Your Referrals:</b> {ref_count} / 3 Friends\n\n"
+        f"🔗 <b>Your Invite Link:</b>\n<code>{ref_link}</code>\n\n"
+        "<i>Note: Once you successfully invite 3 friends, contact admin with a screenshot to claim your free group link!</i>"
+    )
+    
+    kb = InlineKeyboardBuilder()
+    kb.button(text="⬅️ Back to Menu", callback_data="home")
+    kb.adjust(1)
+    
+    await c.message.edit_text(text, parse_mode="HTML", reply_markup=kb.as_markup(), disable_web_page_preview=True)
 
 @router.callback_query(F.data == "shop")
 async def shop(c: CallbackQuery):
@@ -63,14 +108,16 @@ async def shop(c: CallbackQuery):
     if not rows: return await c.message.edit_text("No groups available at the moment.")
     kb = InlineKeyboardBuilder()
     for r in rows:
-        kb.button(text=f"{r['title']} — ₹{r['price']} (Unlimited)", callback_data=f"p:{r['id']}")
-    kb.button(text="⬅️ Back to Menu", callback_data="home"); kb.adjust(1)
+        kb.button(text=f"{r['title']} — ₹{r['price']} | ⭐ {r['stars']}", callback_data=f"p:{r['id']}")
+    kb.button(text="⬅️ Back to Menu", callback_data="home")
+    kb.adjust(1) # ഓരോ ഗ്രൂപ്പും താഴേക്ക് ഓരോ റോ ആയി (Row-by-Row) വരുന്ന രീതിയിൽ സെറ്റ് ചെയ്തിരിക്കുന്നു
     await c.message.edit_text("<b>Select a group to view details:</b>", parse_mode="HTML", reply_markup=kb.as_markup())
 
 @router.callback_query(F.data == "home")
 async def home(c: CallbackQuery):
     kb = InlineKeyboardBuilder()
     kb.button(text="🛍 Browse Groups", callback_data="shop")
+    kb.button(text="🎁 Free / Referral", callback_data="referral")
     kb.button(text="📦 My Orders", callback_data="orders")
     if adm(c.from_user.id): kb.button(text="⚙️ Admin Panel", callback_data="admin")
     kb.adjust(2)
@@ -87,10 +134,11 @@ async def product(c: CallbackQuery):
     if not r: return await c.answer("Group not found.", show_alert=True)
     kb = InlineKeyboardBuilder()
     kb.button(text=f"💳 Pay UPI ₹{r['price']}", callback_data=f"qty:{r['id']}")
-    kb.button(text=f"⭐ Pay {r['stars']} Stars", callback_data=f"star:{r['id']}")
-    kb.button(text="⬅️ Back", callback_data="shop"); kb.adjust(1)
+    kb.button(text=f"⭐ Pay {r['stars']} Stars (Instant)", callback_data=f"star:{r['id']}")
+    kb.button(text="⬅️ Back", callback_data="shop")
+    kb.adjust(1)
     
-    caption = f"<b>{r['title']}</b>\n\n{r['desc'] or ''}\n\n💰 Price: ₹{r['price']}  |  ⭐ Stars: {r['stars']}\n📦 Slots: <b>Unlimited (Always Available)</b>"
+    caption = f"<b>{r['title']}</b>\n\n{r['desc'] or ''}\n\n💰 Price: ₹{r['price']}  |  ⭐ Stars: {r['stars']}\n📦 Access: <b>Unlimited (Instant Delivery on Stars)</b>"
     
     try: await c.message.delete()
     except: pass
@@ -108,7 +156,8 @@ async def qty(c: CallbackQuery):
             (c.from_user.id, pid, 1, r["price"], "upi", str(datetime.datetime.now())))
     kb = InlineKeyboardBuilder()
     kb.button(text="✅ I've Paid — Send Screenshot", callback_data=f"shot:{oid}")
-    kb.button(text="❌ Cancel Order", callback_data=f"no:{oid}"); kb.adjust(1)
+    kb.button(text="❌ Cancel Order", callback_data=f"no:{oid}")
+    kb.adjust(1)
     await c.message.answer_photo(QR, caption=f"<b>Order #{oid}</b>\n\nPlease transfer <b>₹{r['price']}</b> to the UPI ID below:\n<code>{UPI}</code>\n\nAfter payment, click the button below and send your payment screenshot.", parse_mode="HTML", reply_markup=kb.as_markup())
 
 @router.callback_query(F.data.startswith("shot:"))
@@ -125,6 +174,7 @@ async def got_shot(m: Message, state: FSMContext):
     kb = InlineKeyboardBuilder()
     kb.button(text="✅ Approve", callback_data=f"ok:{oid}")
     kb.button(text="❌ Reject", callback_data=f"rno:{oid}")
+    kb.adjust(2)
     await m.answer("✅ Screenshot received. Verifying payment...")
     for a in ADMIN_IDS:
         try: await m.bot.send_photo(a, m.photo[-1].file_id, caption=f"🔔 <b>New Payment Verification</b>\nOrder #{oid}\nUser ID: {m.from_user.id}\nAmount: ₹{o['amount']}", parse_mode="HTML", reply_markup=kb.as_markup())
@@ -168,7 +218,6 @@ async def deliver(bot, oid, chat_id):
     q("UPDATE orders SET status='delivered' WHERE id=?", (oid,))
     await bot.send_message(chat_id, f"✅ Order #{oid} delivered successfully. Welcome to the group!")
 
-    # Broadcast notification to all store users
     try:
         alert_text = f"🎉 Customer #{oid} successfully purchased <b>{product['title']}</b> ✅!\n\n🛍 Explore the store and choose your product below."
         kb_channels = InlineKeyboardBuilder()
@@ -223,7 +272,7 @@ async def admin(c: CallbackQuery):
     if not adm(c.from_user.id): return
     total = q("SELECT COUNT(*) c FROM orders WHERE status IN ('paid','delivered')", (), True)["c"]
     rev = q("SELECT COALESCE(SUM(amount),0) s FROM orders WHERE status IN ('paid','delivered')", (), True)["s"]
-    await c.message.answer(f"<b>Admin Control Panel</b>\nTotal Sales: {total}\nTotal Revenue: ₹{rev}\n\n/addproduct — Add new group\n/list — View all groups\n/del &lt;id&gt; — Delete group\n/clearall — Clear all database data\n/broadcast &lt;msg&gt; — Send broadcast message", parse_mode="HTML")
+    await c.message.answer(f"<b>Admin Control Panel</b>\nTotal Sales: {total}\nTotal Revenue: ₹{rev}\n\n/addproduct — Add new group\n/list — View all groups (Row by Row)\n/del &lt;id&gt; — Delete group\n/broadcast &lt;msg&gt; — Send broadcast message", parse_mode="HTML")
 
 @router.message(Command("addproduct"))
 async def addp(m: Message, state: FSMContext):
@@ -266,7 +315,18 @@ async def a6(m: Message, state: FSMContext):
 async def lst(m: Message):
     if not adm(m.from_user.id): return
     rows = q("SELECT * FROM products")
-    await m.answer("\n".join(f"<b>#{r['id']}</b> {r['title']} — ₹{r['price']} (Unlimited)" for r in rows) or "No groups available.")
+    if not rows:
+        return await m.answer("📂 No groups available in store.")
+    
+    list_text = "📋 <b>All Store Groups List:</b>\n\n"
+    for r in rows:
+        list_text += f"🔹 <b>ID:</b> <code>{r['id']}</code>\n" \
+                     f"📌 <b>Name:</b> {r['title']}\n" \
+                     f"💰 <b>Price:</b> ₹{r['price']} | ⭐ {r['stars']}\n" \
+                     f"🔗 <b>Link:</b> {r['link']}\n" \
+                     f"──────────────────────────\n"
+    
+    await m.answer(list_text, parse_mode="HTML")
 
 @router.message(Command("del"))
 async def dele(m: Message):
