@@ -1,4 +1,4 @@
-import os, sqlite3, datetime, logging
+import os, sqlite3, datetime, asyncio, logging
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command, StateFilter
@@ -552,7 +552,6 @@ async def main():
     dp = Dispatcher()
     dp.include_router(router)
     
-    # Start web server and bot polling simultaneously without conflicts
     await web_server()
     await dp.start_polling(bot)
 
