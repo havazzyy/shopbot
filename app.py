@@ -25,7 +25,7 @@ def q(sql, args=(), one=False):
 def init():
     c = sqlite3.connect(DB)
     c.executescript("""
-    CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY,title TEXT,desc TEXT,price INTEGER,stars INTEGER,active INTEGER DEFAULT 1);
+    CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY,title TEXT,desc TEXT,price INTEGER,stars INTEGER,image TEXT,active INTEGER DEFAULT 1);
     CREATE TABLE IF NOT EXISTS stock(id INTEGER PRIMARY KEY,product_id INTEGER,file_id TEXT,file_type TEXT,sold INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY,user_id INTEGER,product_id INTEGER,qty INTEGER,amount INTEGER,method TEXT,status TEXT DEFAULT 'pending',shot TEXT,created TEXT);
     CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,name TEXT);
@@ -33,7 +33,7 @@ def init():
     c.commit(); c.close()
 
 class Add(StatesGroup):
-    title = State(); price = State(); stars = State(); desc = State(); stock = State()
+    title = State(); price = State(); stars = State(); desc = State(); image = State(); stock = State()
 
 router = Router()
 adm = lambda uid: uid in ADMIN_IDS
@@ -46,7 +46,7 @@ async def start(m: Message):
     kb.button(text="📦 My Orders", callback_data="orders")
     if adm(m.from_user.id): kb.button(text="⚙️ Admin", callback_data="admin")
     kb.adjust(2)
-    await m.answer(f"<b>സ്വാഗതം {m.from_user.first_name}!</b>\nതാഴെ നിന്ന് വാങ്ങാം 👇", reply_markup=kb.as_markup())
+    await m.answer(f"<b>സ്വാഗതം {m.from_user.first_name}!</b>\nതാഴെ നിന്ന് വാങ്ങാം 👇", parse_mode="HTML", reply_markup=kb.as_markup())
 
 @router.callback_query(F.data == "shop")
 async def shop(c: CallbackQuery):
@@ -79,7 +79,16 @@ async def product(c: CallbackQuery):
         kb.button(text=f"⭐ {r['stars']} Stars", callback_data=f"star:{r['id']}")
     else: kb.button(text="Sold out", callback_data="shop")
     kb.button(text="⬅️ Back", callback_data="shop"); kb.adjust(1)
-    await c.message.edit_text(f"<b>{r['title']}</b>\n\n{r['desc'] or ''}\n\n💰 ₹{r['price']}  |  ⭐ {r['stars']}\n📦 Stock: {n}", reply_markup=kb.as_markup())
+    
+    caption = f"<b>{r['title']}</b>\n\n{r['desc'] or ''}\n\n💰 ₹{r['price']}  |  ⭐ {r['stars']}\n📦 Stock: {n}"
+    
+    try: await c.message.delete()
+    except: pass
+        
+    if r["image"]:
+        await c.bot.send_photo(c.from_user.id, r["image"], caption=caption, parse_mode="HTML", reply_markup=kb.as_markup())
+    else:
+        await c.bot.send_message(c.from_user.id, caption, parse_mode="HTML", reply_markup=kb.as_markup())
 
 @router.callback_query(F.data.startswith("qty:"))
 async def qty(c: CallbackQuery):
@@ -90,7 +99,7 @@ async def qty(c: CallbackQuery):
     kb = InlineKeyboardBuilder()
     kb.button(text="✅ Paid — screenshot അയക്കാം", callback_data=f"shot:{oid}")
     kb.button(text="❌ Cancel", callback_data=f"no:{oid}"); kb.adjust(1)
-    await c.message.answer_photo(QR, caption=f"<b>Order #{oid}</b>\n\n₹{r['price']} ഈ UPI-ലേക്ക് അയക്കുക:\n<code>{UPI}</code>\n\nPay ചെയ്ത ശേഷം താഴെ ബട്ടൺ അമർത്തി screenshot അയക്കുക.", reply_markup=kb.as_markup())
+    await c.message.answer_photo(QR, caption=f"<b>Order #{oid}</b>\n\n₹{r['price']} ഈ UPI-ലേക്ക് അയക്കുക:\n<code>{UPI}</code>\n\nPay ചെയ്ത ശേഷം താഴെ ബട്ടൺ അമർത്തി screenshot അയക്കുക.", parse_mode="HTML", reply_markup=kb.as_markup())
 
 @router.callback_query(F.data.startswith("shot:"))
 async def shot(c: CallbackQuery, state: FSMContext):
@@ -176,42 +185,51 @@ async def myorders(c: CallbackQuery):
     rows = q("SELECT o.*, p.title FROM orders o JOIN products p ON p.id=o.product_id WHERE o.user_id=? ORDER BY o.id DESC LIMIT 10", (c.from_user.id,))
     if not rows: return await c.answer("Order ഇല്ല", show_alert=True)
     t = "\n".join(f"#{r['id']} — {r['title']} — ₹{r['amount']} — {r['status']}" for r in rows)
-    await c.message.answer(f"<b>നിങ്ങളുടെ orders:</b>\n\n{t}")
+    await c.message.answer(f"<b>നിങ്ങളുടെ orders:</b>\n\n{t}", parse_mode="HTML")
 
 @router.callback_query(F.data == "admin")
 async def admin(c: CallbackQuery):
     if not adm(c.from_user.id): return
     total = q("SELECT COUNT(*) c FROM orders WHERE status IN ('paid','delivered')", (), True)["c"]
     rev = q("SELECT COALESCE(SUM(amount),0) s FROM orders WHERE status IN ('paid','delivered')", (), True)["s"]
-    await c.message.answer(f"<b>Admin</b>\nSales: {total}\nRevenue: ₹{rev}\n\n/addproduct — പുതിയ product\n/list — products\n/del &lt;id&gt; — delete\n/broadcast &lt;msg&gt; — അയക്കൽ")
+    await c.message.answer(f"<b>Admin</b>\nSales: {total}\nRevenue: ₹{rev}\n\n/addproduct — പുതിയ product\n/list — products\n/del &lt;id&gt; — delete\n/broadcast &lt;msg&gt; — അയക്കൽ", parse_mode="HTML")
 
 @router.message(Command("addproduct"))
 async def addp(m: Message, state: FSMContext):
     if not adm(m.from_user.id): return
-    await state.set_state(Add.title); await m.answer("1/4 Product name:")
+    await state.set_state(Add.title); await m.answer("1/5 Product name:")
 
 @router.message(Add.title)
 async def a1(m: Message, state: FSMContext):
-    await state.update_data(title=m.text); await state.set_state(Add.price); await m.answer("2/4 വില (₹ നമ്പർ മാത്രം):")
+    await state.update_data(title=m.text); await state.set_state(Add.price); await m.answer("2/5 വില (₹ നമ്പർ മാത്രം):")
 
 @router.message(Add.price)
 async def a2(m: Message, state: FSMContext):
-    await state.update_data(price=int(m.text)); await state.set_state(Add.stars); await m.answer("3/4 Stars വില (⭐ നമ്പർ):")
+    await state.update_data(price=int(m.text)); await state.set_state(Add.stars); await m.answer("3/5 Stars വില (⭐ നമ്പർ):")
 
 @router.message(Add.stars)
 async def a3(m: Message, state: FSMContext):
-    await state.update_data(stars=int(m.text)); await state.set_state(Add.desc); await m.answer("4/4 Description:")
+    await state.update_data(stars=int(m.text)); await state.set_state(Add.desc); await m.answer("4/5 Description:")
 
 @router.message(Add.desc)
 async def a4(m: Message, state: FSMContext):
+    await state.update_data(desc=m.text)
+    await state.set_state(Add.image)
+    await m.answer("5/5 <b>Demo Photo അയക്കുക</b> (Product-inte demo/screenshot screenshot-aayi ayakkuka):", parse_mode="HTML")
+
+@router.message(Add.image, F.photo)
+async def a_image(m: Message, state: FSMContext):
     d = await state.get_data()
-    q("INSERT INTO products(title,desc,price,stars) VALUES(?,?,?,?)", (d["title"], m.text, d["price"], d["stars"]))
+    file_id = m.photo[-1].file_id
+    q("INSERT INTO products(title,desc,price,stars,image) VALUES(?,?,?,?,?)", 
+      (d["title"], d["desc"], d["price"], d["stars"], file_id))
     await state.set_state(Add.stock)
-    await m.answer("ഇനി ഫയലുകൾ forward ചെയ്യുക. ഓരോ ഫയലും = 1 stock. തീർന്നാൽ /done")
+    await m.answer("✅ Demo photo save aayi! ഇനി stock-നുള്ള files ഓരോന്നായി forward ചെയ്യുക. തീർന്നാൽ /done എന്ന് ടൈപ്പ് ചെയ്യുക.")
 
 @router.message(Add.stock)
 async def a5(m: Message, state: FSMContext):
     pid = q("SELECT MAX(id) i FROM products", (), True)["i"]
+    if m.product_file_error := False: pass
     if m.document: q("INSERT INTO stock(product_id,file_id,file_type) VALUES(?,?,'doc')", (pid, m.document.file_id))
     elif m.video: q("INSERT INTO stock(product_id,file_id,file_type) VALUES(?,?,'video')", (pid, m.video.file_id))
     elif m.photo: q("INSERT INTO stock(product_id,file_id,file_type) VALUES(?,?,'photo')", (pid, m.photo.file_id))
@@ -232,8 +250,15 @@ async def lst(m: Message):
 @router.message(Command("del"))
 async def dele(m: Message):
     if not adm(m.from_user.id): return
-    q("UPDATE products SET active=0 WHERE id=?", (int(m.text.split()[1]),))
-    await m.answer("Deleted")
+    try:
+        parts = m.text.split()
+        if len(parts) < 2: return await m.answer("⚠️ Please provide product ID. Eg: `/del 1`")
+        product_id = int(parts[1])
+        q("DELETE FROM stock WHERE product_id=?", (product_id,))
+        q("DELETE FROM products WHERE id=?", (product_id,))
+        await m.answer(f"✅ Product #{product_id} permanently deleted.")
+    except Exception as e:
+        await m.answer(f"❌ Error: {e}")
 
 @router.message(Command("broadcast"))
 async def bc(m: Message):
