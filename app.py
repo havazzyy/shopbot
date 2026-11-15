@@ -38,6 +38,9 @@ class Add(StatesGroup):
 class AddBundle(StatesGroup):
     title = State(); price = State(); stars = State(); desc = State(); image = State(); links = State()
 
+class SupportState(StatesGroup):
+    message = State()
+
 router = Router()
 adm = lambda uid: uid in ADMIN_IDS
 
@@ -72,7 +75,8 @@ async def start(m: Message):
         "👑 <b>Welcome to our Exclusive Premium Group Store.</b>\n"
         "• Browse individual groups & Combo Bundles.\n"
         "• Pay securely via UPI or Telegram Stars.\n"
-        "• Invite friends and earn <b>Free Access</b>!\n\n"
+        "• Invite friends and earn <b>Free Access</b>!\n"
+        "• Need help? Contact our <b>Live Support</b> anytime.\n\n"
         "Please choose an option below 👇"
     )
     
@@ -81,6 +85,7 @@ async def start(m: Message):
     kb.button(text="🔥 Combo Bundles", callback_data="bundles")
     kb.button(text="🎁 Free / Referral", callback_data="referral")
     kb.button(text="📦 My Orders", callback_data="orders")
+    kb.button(text="🎧 Live Support", callback_data="support")
     if adm(user_id): kb.button(text="⚙️ Admin Panel", callback_data="admin")
     kb.adjust(2)
     await m.answer(welcome_text, parse_mode="HTML", reply_markup=kb.as_markup())
@@ -92,6 +97,7 @@ async def home(c: CallbackQuery):
     kb.button(text="🔥 Combo Bundles", callback_data="bundles")
     kb.button(text="🎁 Free / Referral", callback_data="referral")
     kb.button(text="📦 My Orders", callback_data="orders")
+    kb.button(text="🎧 Live Support", callback_data="support")
     if adm(c.from_user.id): kb.button(text="⚙️ Admin Panel", callback_data="admin")
     kb.adjust(2)
     
@@ -100,6 +106,70 @@ async def home(c: CallbackQuery):
         "Please choose an option below 👇"
     )
     await c.message.edit_text(welcome_text, parse_mode="HTML", reply_markup=kb.as_markup())
+
+# 🎧 LIVE SUPPORT SECTION
+@router.callback_query(F.data == "support")
+async def support_menu(c: CallbackQuery, state: FSMContext):
+    kb = InlineKeyboardBuilder()
+    kb.button(text="⬅️ Back to Menu", callback_data="home")
+    kb.adjust(1)
+    await state.set_state(SupportState.message)
+    await c.message.edit_text(
+        "🎧 <b>Live Customer Support</b>\n\n"
+        "Please type your issue, question, or payment query below as a single message, and our admin team will reply to you shortly.",
+        parse_mode="HTML", reply_markup=kb.as_markup()
+    )
+
+@router.message(SupportState.message)
+async def send_support_to_admin(m: Message, state: FSMContext):
+    user_id = m.from_user.id
+    user_name = m.from_user.full_name
+    msg_text = m.text
+    
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✍️ Reply to User", callback_data=f"reply:{user_id}")
+    kb.adjust(1)
+    
+    for a in ADMIN_IDS:
+        try:
+            await m.bot.send_message(
+                a,
+                f"🚨 <b>New Support Message!</b>\n\n"
+                f"👤 <b>From:</b> {user_name} (ID: <code>{user_id}</code>)\n"
+                f"💬 <b>Message:</b> {msg_text}",
+                parse_mode="HTML",
+                reply_markup=kb.as_markup()
+            )
+        except:
+            pass
+            
+    await state.clear()
+    await m.answer("✅ Your message has been sent to our support team! We will get back to you soon.")
+
+@router.callback_query(F.data.startswith("reply:"))
+async def admin_reply_prompt(c: CallbackQuery, state: FSMContext):
+    if not adm(c.from_user.id): return
+    target_user_id = int(c.data.split(":")[1])
+    await state.update_data(target_user=target_user_id)
+    await state.set_state("admin_reply_wait")
+    await c.message.answer(f"✍️ Type your reply message to user ID <code>{target_user_id}</code>:", parse_mode="HTML")
+
+@router.message(StateFilter("admin_reply_wait"))
+async def admin_send_reply(m: Message, state: FSMContext):
+    if not adm(m.from_user.id): return
+    data = await state.get_data()
+    target_user_id = data.get("target_user")
+    
+    try:
+        await m.bot.send_message(
+            target_user_id,
+            f"👑 <b>Admin Support Reply:</b>\n\n{m.text}",
+            parse_mode="HTML"
+        )
+        await m.answer("✅ Reply sent successfully to the user!")
+    except Exception as e:
+        await m.answer(f"❌ Failed to send reply: {e}")
+    await state.clear()
 
 @router.callback_query(F.data == "referral")
 async def referral_menu(c: CallbackQuery):
@@ -134,7 +204,6 @@ async def shop(c: CallbackQuery):
     kb.adjust(1)
     await c.message.edit_text("<b>Select an individual group:</b>", parse_mode="HTML", reply_markup=kb.as_markup())
 
-# COMBO BUNDLES LIST
 @router.callback_query(F.data == "bundles")
 async def bundles_menu(c: CallbackQuery):
     rows = q("SELECT * FROM bundles WHERE active=1")
@@ -167,7 +236,6 @@ async def product(c: CallbackQuery):
     else:
         await c.bot.send_message(c.from_user.id, caption, parse_mode="HTML", reply_markup=kb.as_markup())
 
-# BUNDLE DETAILS VIEW
 @router.callback_query(F.data.startswith("b:"))
 async def bundle_detail(c: CallbackQuery):
     r = q("SELECT * FROM bundles WHERE id=?", (int(c.data.split(":")[1]),), True)
@@ -191,10 +259,9 @@ async def bundle_detail(c: CallbackQuery):
 @router.callback_query(F.data.startswith("qty:"))
 async def qty(c: CallbackQuery):
     parts = c.data.split(":")
-    item_type = parts[1] # 'p' or 'b'
+    item_type = parts[1]
     item_id = int(parts[2])
     
-    table = "bundles" if item_type == "b" else "products"
     r = q(f"SELECT * FROM bundles WHERE id=?", (item_id,), True) if item_type == "b" else q(f"SELECT * FROM products WHERE id=?", (item_id,), True)
     
     oid = q("INSERT INTO orders(user_id,product_id,qty,amount,method,created,item_type) VALUES(?,?,?,?,?,?,?)",
@@ -325,14 +392,42 @@ async def myorders(c: CallbackQuery):
     t = "\n".join(f"#{r['id']} — Amount: ₹{r['amount']} — Status: <b>{r['status']}</b>" for r in rows)
     await c.message.answer(f"<b>Your Recent Orders:</b>\n\n{t}", parse_mode="HTML")
 
+# 📊 ADVANCED SALES & REVENUE ANALYTICS (ADMIN PANEL)
 @router.callback_query(F.data == "admin")
 async def admin(c: CallbackQuery):
     if not adm(c.from_user.id): return
-    total = q("SELECT COUNT(*) c FROM orders WHERE status IN ('paid','delivered')", (), True)["c"]
-    rev = q("SELECT COALESCE(SUM(amount),0) s FROM orders WHERE status IN ('paid','delivered')", (), True)["s"]
-    await c.message.answer(f"<b>Admin Control Panel</b>\nTotal Sales: {total}\nTotal Revenue: ₹{rev}\n\n/addproduct — Add single group\n/addbundle — Add combo bundle pack\n/list — View groups\n/broadcast — Broadcast message", parse_mode="HTML")
+    
+    # Analytics Calculations
+    total_sales = q("SELECT COUNT(*) c FROM orders WHERE status IN ('paid','delivered')", (), True)["c"]
+    total_revenue = q("SELECT COALESCE(SUM(amount),0) s FROM orders WHERE status IN ('paid','delivered')", (), True)["s"]
+    total_users = q("SELECT COUNT(*) c FROM users", (), True)["c"]
+    
+    # Today's Revenue
+    today = str(datetime.datetime.now().date())
+    today_rev = q("SELECT COALESCE(SUM(amount),0) s FROM orders WHERE status IN ('paid','delivered') AND created LIKE ?", (today + "%",), True)["s"]
 
-# ADD SINGLE PRODUCT
+    text = (
+        "📊 <b>Automated Sales & Revenue Analytics</b>\n"
+        "──────────────────────────\n"
+        f"👥 <b>Total Store Users:</b> {total_users}\n"
+        f"📦 <b>Total Successful Sales:</b> {total_sales}\n"
+        f"💰 <b>Total Revenue:</b> ₹{total_revenue}\n"
+        f"📅 <b>Today's Revenue:</b> ₹{today_rev}\n"
+        "──────────────────────────\n\n"
+        "<b>Admin Commands:</b>\n"
+        "/addproduct — Add single group\n"
+        "/addbundle — Add combo bundle pack\n"
+        "/list — View groups inventory\n"
+        "/broadcast — Send broadcast message"
+    )
+    
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🔄 Refresh Analytics", callback_data="admin")
+    kb.button(text="⬅️ Back to Menu", callback_data="home")
+    kb.adjust(1)
+    
+    await c.message.edit_text(text, parse_mode="HTML", reply_markup=kb.as_markup())
+
 @router.message(Command("addproduct"))
 async def addp(m: Message, state: FSMContext):
     if not adm(m.from_user.id): return
@@ -340,7 +435,7 @@ async def addp(m: Message, state: FSMContext):
 
 @router.message(Add.title)
 async def a1(m: Message, state: FSMContext):
-    await state.update_data(title=m.text); await state.set_state(Add.price); await m.answer("2/6 Enter Price in INR (e.g., 199):")
+    await state.update_data(title=m.text); await state.set_state(Add.price); await m.answer("2/6 Enter Price in INR:")
 
 @router.message(Add.price)
 async def a2(m: Message, state: FSMContext):
@@ -369,11 +464,10 @@ async def a6(m: Message, state: FSMContext):
     await state.clear()
     await m.answer("✅ Single Group added successfully!", parse_mode="HTML")
 
-# ADD COMBO BUNDLE COMMAND (/addbundle)
 @router.message(Command("addbundle"))
 async def add_bundle(m: Message, state: FSMContext):
     if not adm(m.from_user.id): return
-    await state.set_state(AddBundle.title); await m.answer("🔥 1/6 Enter Combo Bundle Title (e.g., MEGA VIP BUNDLE):")
+    await state.set_state(AddBundle.title); await m.answer("🔥 1/6 Enter Combo Bundle Title:")
 
 @router.message(AddBundle.title)
 async def b1(m: Message, state: FSMContext):
@@ -396,15 +490,15 @@ async def b4(m: Message, state: FSMContext):
 async def b_image(m: Message, state: FSMContext):
     await state.update_data(image=m.photo[-1].file_id)
     await state.set_state(AddBundle.links)
-    await m.answer("🔥 6/6 Send all group links together as text (e.g., Link 1 & Link 2):", parse_mode="HTML")
+    await m.answer("🔥 6/6 Send all group links together as text:", parse_mode="HTML")
 
-@router.message(AddBundle.links)
+@router.message(Addbundle.links)
 async def b6(m: Message, state: FSMContext):
     d = await state.get_data()
     q("INSERT INTO bundles(title,desc,price,stars,image,links) VALUES(?,?,?,?,?,?)", 
       (d["title"], d["desc"], d["price"], d["stars"], d["image"], m.text))
     await state.clear()
-    await m.answer("✅ Combo Bundle Pack created successfully and is now live!", parse_mode="HTML")
+    await m.answer("✅ Combo Bundle Pack created successfully!", parse_mode="HTML")
 
 @router.message(Command("list"))
 async def lst(m: Message):
