@@ -42,18 +42,18 @@ adm = lambda uid: uid in ADMIN_IDS
 async def start(m: Message):
     q("INSERT OR IGNORE INTO users VALUES(?,?)", (m.from_user.id, m.from_user.first_name))
     
-    # Bot enthu group/store aanu ennulla description / caption
+    # Telegram Premium Groups-nu ulla description/caption
     welcome_text = (
         f"<b>സ്വാഗതം {m.from_user.first_name}! 👋</b>\n\n"
-        "🛍 <b>ഇത് ഡിജിറ്റൽ പ്രൊഡക്റ്റുകളും ഫയലുകളും എളുപ്പത്തിൽ വാങ്ങാനുള്ള സ്റ്റോർ ആണ്.</b>\n"
-        "• വിശ്വസ്തതയോടെ പ്രൊഡക്റ്റുകൾ ബ്രൗസ് ചെയ്ത് വാങ്ങാം.\n"
+        "👑 <b>ഇത് എക്സ്ക്ലൂസീവ് ടെലഗ്രാം പ്രീമിയം ഗ്രൂപ്പുകൾ ജോയിൻ ചെയ്യാനുള്ള സ്റ്റോർ ആണ്.</b>\n"
+        "• പ്രീമിയം ഗ്രൂപ്പുകൾ ബ്രൗസ് ചെയ്ത് തിരഞ്ഞെടുക്കാം.\n"
         "• UPI അല്ലെങ്കിൽ Telegram Stars വഴി പേയ്മെന്റ് നടത്താം.\n"
-        "• പെയ്മെന്റ് പൂർത്തിയായാൽ ഫയലുകൾ ഓട്ടോമാറ്റിക്കായി ഡെലിവറി ലഭിക്കും.\n\n"
+        "• പേയ്മെന്റ് പൂർത്തിയായാൽ ഗ്രൂപ്പിലേക്കുള്ള പ്രൈവറ്റ് ഇൻവൈറ്റ് ലിങ്ക് ഓട്ടോമാറ്റിക്കായി ലഭിക്കും!\n\n"
         "താഴെ കാണുന്ന ഓപ്ഷനുകൾ ഉപയോഗിക്കുക 👇"
     )
     
     kb = InlineKeyboardBuilder()
-    kb.button(text="🛍 Shop", callback_data="shop")
+    kb.button(text="🛍 Groups Browse ചെയ്യാം", callback_data="shop")
     kb.button(text="📦 My Orders", callback_data="orders")
     if adm(m.from_user.id): kb.button(text="⚙️ Admin", callback_data="admin")
     kb.adjust(2)
@@ -62,24 +62,24 @@ async def start(m: Message):
 @router.callback_query(F.data == "shop")
 async def shop(c: CallbackQuery):
     rows = q("SELECT * FROM products WHERE active=1")
-    if not rows: return await c.message.edit_text("ഇപ്പോൾ product ഇല്ല.")
+    if not rows: return await c.message.edit_text("ഇപ്പോൾ ഗ്രൂപ്പുകൾ ഒന്നും ലഭ്യലല്ല.")
     kb = InlineKeyboardBuilder()
     for r in rows:
         n = q("SELECT COUNT(*) c FROM stock WHERE product_id=? AND sold=0", (r["id"],), True)["c"]
         kb.button(text=f"{r['title']} — ₹{r['price']} ({n})", callback_data=f"p:{r['id']}")
     kb.button(text="⬅️ Back", callback_data="home"); kb.adjust(1)
-    await c.message.edit_text("തിരഞ്ഞെടുക്കുക:", reply_markup=kb.as_markup())
+    await c.message.edit_text("ഗ്രൂപ്പുകൾ തിരഞ്ഞെടുക്കുക:", reply_markup=kb.as_markup())
 
 @router.callback_query(F.data == "home")
 async def home(c: CallbackQuery):
     kb = InlineKeyboardBuilder()
-    kb.button(text="🛍 Shop", callback_data="shop")
+    kb.button(text="🛍 Groups Browse ചെയ്യാം", callback_data="shop")
     kb.button(text="📦 My Orders", callback_data="orders")
     if adm(c.from_user.id): kb.button(text="⚙️ Admin", callback_data="admin")
     kb.adjust(2)
     
     welcome_text = (
-        "🛍 <b>ഡിജിറ്റൽ സ്റ്റോർ മെനു:</b>\n"
+        "👑 <b>പ്രീമിയം ഗ്രൂപ്പ് സ്റ്റോർ മെനു:</b>\n"
         "താഴെ നിന്ന് ആവശ്യമായത് തിരഞ്ഞെടുക്കുക 👇"
     )
     await c.message.edit_text(welcome_text, parse_mode="HTML", reply_markup=kb.as_markup())
@@ -93,10 +93,10 @@ async def product(c: CallbackQuery):
     if n:
         kb.button(text=f"💳 UPI ₹{r['price']}", callback_data=f"qty:{r['id']}")
         kb.button(text=f"⭐ {r['stars']} Stars", callback_data=f"star:{r['id']}")
-    else: kb.button(text="Sold out", callback_data="shop")
+    else: kb.button(text="Sold out (Slots തീർന്നു)", callback_data="shop")
     kb.button(text="⬅️ Back", callback_data="shop"); kb.adjust(1)
     
-    caption = f"<b>{r['title']}</b>\n\n{r['desc'] or ''}\n\n💰 ₹{r['price']}  |  ⭐ {r['stars']}\n📦 Stock: {n}"
+    caption = f"<b>{r['title']}</b>\n\n{r['desc'] or ''}\n\n💰 വില: ₹{r['price']}  |  ⭐ {r['stars']}\n📦 Available Slots: {n}"
     
     try: await c.message.delete()
     except: pass
@@ -140,7 +140,7 @@ async def got_shot(m: Message, state: FSMContext):
 @router.callback_query(F.data.startswith("star:"))
 async def stars(c: CallbackQuery):
     r = q("SELECT * FROM products WHERE id=?", (int(c.data.split(":")[1]),), True)
-    await c.bot.send_invoice(c.from_user.id, title=r["title"], description=(r["desc"] or "Product")[:250],
+    await c.bot.send_invoice(c.from_user.id, title=r["title"], description=(r["desc"] or "Group Access")[:250],
         payload=f"p:{r['id']}", provider_token="", currency="XTR",
         prices=[LabeledPrice(label=r["title"], amount=r["stars"])])
     await c.answer()
@@ -161,17 +161,18 @@ async def deliver(bot, oid, chat_id):
     if o["status"] == "delivered": return
     items = q("SELECT * FROM stock WHERE product_id=? AND sold=0 LIMIT ?", (o["product_id"], o["qty"]))
     if not items:
-        return await bot.send_message(chat_id, f"⚠️ Order #{oid} paid, stock തീർന്നു. Admin ബന്ധപ്പെടും.")
+        return await bot.send_message(chat_id, f"⚠️ Order #{oid} paid, slots തീർന്നു. Admin ഉടൻ ലിങ്ക് അയച്ചു തരും.")
     for it in items:
         try:
-            if it["file_type"] == "doc": await bot.send_document(chat_id, it["file_id"])
-            elif it["file_type"] == "video": await bot.send_video(chat_id, it["file_id"])
-            elif it["file_type"] == "photo": await bot.send_photo(chat_id, it["file_id"])
-            else: await bot.send_message(chat_id, it["file_id"])
+            # Group link / text delivery
+            if it["file_type"] == "text":
+                await bot.send_message(chat_id, f"🔗 <b>നിങ്ങളുടെ പ്രീമിയം ഗ്രൂപ്പ് ഇൻവൈറ്റ് ലിങ്ക്:</b>\n\n{it['file_id']}", parse_mode="HTML")
+            else:
+                await bot.send_message(chat_id, f"🔗 <b>പ്രീമിയം ഗ്രൂപ്പ് ലിങ്ക്:</b>\n{it['file_id']}", parse_mode="HTML")
         except Exception as e: await bot.send_message(chat_id, f"Error: {e}")
         q("UPDATE stock SET sold=1 WHERE id=?", (it["id"],))
     q("UPDATE orders SET status='delivered' WHERE id=?", (oid,))
-    await bot.send_message(chat_id, f"✅ Order #{oid} delivered. നന്ദി!")
+    await bot.send_message(chat_id, f"✅ Order #{oid} delivered. ഗ്രൂപ്പിലേക്ക് സ്വാഗതം!")
 
 @router.callback_query(F.data.startswith("ok:"))
 async def okk(c: CallbackQuery):
@@ -179,7 +180,7 @@ async def okk(c: CallbackQuery):
     oid = int(c.data.split(":")[1]); o = q("SELECT * FROM orders WHERE id=?", (oid,), True)
     q("UPDATE orders SET status='paid' WHERE id=?", (oid,))
     await deliver(c.bot, oid, o["user_id"])
-    await c.message.edit_caption(caption=(c.message.caption or "") + "\n\n✅ APPROVED")
+    await c.message.edit_caption(caption=(c.message.caption or "") + "\n\n✅ APPROVED & LINK SENT")
 
 @router.callback_query(F.data.startswith("rno:"))
 async def rno(c: CallbackQuery):
@@ -199,7 +200,7 @@ async def cancel(c: CallbackQuery):
 @router.callback_query(F.data == "orders")
 async def myorders(c: CallbackQuery):
     rows = q("SELECT o.*, p.title FROM orders o JOIN products p ON p.id=o.product_id WHERE o.user_id=? ORDER BY o.id DESC LIMIT 10", (c.from_user.id,))
-    if not rows: return await c.answer("Order ഇല്ല", show_alert=True)
+    if not rows: return await c.answer("Orders ഒന്നും ഇല്ല", show_alert=True)
     t = "\n".join(f"#{r['id']} — {r['title']} — ₹{r['amount']} — {r['status']}" for r in rows)
     await c.message.answer(f"<b>നിങ്ങളുടെ orders:</b>\n\n{t}", parse_mode="HTML")
 
@@ -208,12 +209,12 @@ async def admin(c: CallbackQuery):
     if not adm(c.from_user.id): return
     total = q("SELECT COUNT(*) c FROM orders WHERE status IN ('paid','delivered')", (), True)["c"]
     rev = q("SELECT COALESCE(SUM(amount),0) s FROM orders WHERE status IN ('paid','delivered')", (), True)["s"]
-    await c.message.answer(f"<b>Admin Panel</b>\nSales: {total}\nRevenue: ₹{rev}\n\n/addproduct — പുതിയ product\n/list — products\n/del &lt;id&gt; — delete\n/clearall — എല്ലാ data-യും കളയാൻ\n/broadcast &lt;msg&gt; — അയക്കൽ", parse_mode="HTML")
+    await c.message.answer(f"<b>Admin Panel</b>\nSales: {total}\nRevenue: ₹{rev}\n\n/addproduct — പുതിയ ഗ്രൂപ്പ് ചേർക്കാൻ\n/list — ഗ്രൂപ്പുകൾ കാണാൻ\n/del &lt;id&gt; — ഡിലീറ്റ് ചെയ്യാൻ\n/clearall — എല്ലാ ഡാറ്റയും കളയാൻ\n/broadcast &lt;msg&gt; — മെസ്സേജ് അയക്കാൻ", parse_mode="HTML")
 
 @router.message(Command("addproduct"))
 async def addp(m: Message, state: FSMContext):
     if not adm(m.from_user.id): return
-    await state.set_state(Add.title); await m.answer("1/5 Product name:")
+    await state.set_state(Add.title); await m.answer("1/5 ഗ്രൂപ്പിന്റെ പേര് (Group Name):")
 
 @router.message(Add.title)
 async def a1(m: Message, state: FSMContext):
@@ -225,13 +226,13 @@ async def a2(m: Message, state: FSMContext):
 
 @router.message(Add.stars)
 async def a3(m: Message, state: FSMContext):
-    await state.update_data(stars=int(m.text)); await state.set_state(Add.desc); await m.answer("4/5 Description:")
+    await state.update_data(stars=int(m.text)); await state.set_state(Add.desc); await m.answer("4/5 Description (ഗ്രൂപ്പിനെപ്പറ്റി കുറച്ച് എഴുതുക):")
 
 @router.message(Add.desc)
 async def a4(m: Message, state: FSMContext):
     await state.update_data(desc=m.text)
     await state.set_state(Add.image)
-    await m.answer("5/5 <b>Demo Photo അയക്കുക</b> (പ്രൊഡക്റ്റിന്റെ ഡെമോ/സ്ക്രീൻഷോട്ട്):", parse_mode="HTML")
+    await m.answer("5/5 <b>ഗ്രൂപ്പിന്റെ ഡെമോ ഫോട്ടോ അയക്കുക</b> (Screenshot):", parse_mode="HTML")
 
 @router.message(Add.image, F.photo)
 async def a_image(m: Message, state: FSMContext):
@@ -240,38 +241,39 @@ async def a_image(m: Message, state: FSMContext):
     q("INSERT INTO products(title,desc,price,stars,image) VALUES(?,?,?,?,?)", 
       (d["title"], d["desc"], d["price"], d["stars"], file_id))
     await state.set_state(Add.stock)
-    await m.answer("✅ ഡെമോ ഫോട്ടോ സേവായി! ഇനി stock-നുള്ള ഫയലുകൾ ഓരോന്നായി forward ചെയ്യുക. തീർന്നാൽ /done എന്ന് ടൈപ്പ് ചെയ്യുക.")
+    await m.answer("✅ ഡെമോ ഫോട്ടോ സേവായി! ഇനി ഈ ഗ്രൂപ്പിലേക്കുള്ള <b>Invite Link-കൾ</b> ഓരോന്നായി മെസ്സേജ് ആയി അയക്കുക (ഓരോ ലിങ്കും ഓരോ stock slot ആണ്). തീർന്നാൽ /done എന്ന് ടൈപ്പ് ചെയ്യുക.", parse_mode="HTML")
 
 @router.message(Add.stock)
 async def a5(m: Message, state: FSMContext):
     pid = q("SELECT MAX(id) i FROM products", (), True)["i"]
-    if m.document: q("INSERT INTO stock(product_id,file_id,file_type) VALUES(?,?,'doc')", (pid, m.document.file_id))
-    elif m.video: q("INSERT INTO stock(product_id,file_id,file_type) VALUES(?,?,'video')", (pid, m.video.file_id))
-    elif m.photo: q("INSERT INTO stock(product_id,file_id,file_type) VALUES(?,?,'photo')", (pid, m.photo.file_id))
-    else: return await m.answer("ഫയൽ മാത്രം അയക്കുക")
+    # Group link-kal text aayi vangikkunnu
+    if m.text: 
+        q("INSERT INTO stock(product_id,file_id,file_type) VALUES(?,?,'text')", (pid, m.text))
+    else: 
+        return await m.answer("தயவுசெய்து ഗ്രൂപ്പ് ഇൻവൈറ്റ് ലിങ്ക് (Text) അയക്കുക!")
     n = q("SELECT COUNT(*) c FROM stock WHERE product_id=? AND sold=0", (pid,), True)["c"]
-    await m.answer(f"✅ ചേർത്തു. Stock: {n}")
+    await m.answer(f"✅ ലിങ്ക് ചേർത്തു. Available Slots / Links: {n}")
 
 @router.message(Command("done"))
 async def done(m: Message, state: FSMContext):
-    await state.clear(); await m.answer("✅ Product live ആയി.")
+    await state.clear(); await m.answer("✅ ഗ്രൂപ്പ് സ്റ്റോറിൽ live ആയി!")
 
 @router.message(Command("list"))
 async def lst(m: Message):
     if not adm(m.from_user.id): return
     rows = q("SELECT p.*, (SELECT COUNT(*) FROM stock s WHERE s.product_id=p.id AND s.sold=0) st FROM products p")
-    await m.answer("\n".join(f"#{r['id']} {r['title']} ₹{r['price']} stock:{r['st']}" for r in rows) or "ഒന്നുമില്ല")
+    await m.answer("\n".join(f"#{r['id']} {r['title']} ₹{r['price']} slots:{r['st']}" for r in rows) or "ഗ്രൂപ്പുകൾ ഒന്നുമില്ല")
 
 @router.message(Command("del"))
 async def dele(m: Message):
     if not adm(m.from_user.id): return
     try:
         parts = m.text.split()
-        if len(parts) < 2: return await m.answer("⚠️ Please provide product ID. Eg: `/del 1`")
+        if len(parts) < 2: return await m.answer("⚠️ Please provide group ID. Eg: `/del 1`")
         product_id = int(parts[1])
         q("DELETE FROM stock WHERE product_id=?", (product_id,))
         q("DELETE FROM products WHERE id=?", (product_id,))
-        await m.answer(f"✅ Product #{product_id} permanently deleted.")
+        await m.answer(f"✅ Group #{product_id} permanently deleted.")
     except Exception as e:
         await m.answer(f"❌ Error: {e}")
 
@@ -281,7 +283,7 @@ async def clear_all(m: Message):
     q("DELETE FROM products")
     q("DELETE FROM stock")
     q("DELETE FROM orders")
-    await m.answer("🗑 എല്ലാ പ്രൊഡക്റ്റുകളും സ്റ്റോപ്പുകളും ഓർഡറുകളും വിജയകരമായി ക്ലിയർ ചെയ്തു!")
+    await m.answer("🗑 എല്ലാ ഗ്രൂപ്പുകളും സ്റ്റോക്കുകളും ഓർഡറുകളും ക്ലിയർ ചെയ്തു!")
 
 @router.message(Command("broadcast"))
 async def bc(m: Message):
