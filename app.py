@@ -263,4 +263,276 @@ async def qty(c: CallbackQuery):
     
     r = q(f"SELECT * FROM bundles WHERE id=?", (item_id,), True) if item_type == "b" else q(f"SELECT * FROM products WHERE id=?", (item_id,), True)
     
+    oid = q("INSERT INTO orders(user_id,product_id,qty,amount,method,created,item_type) VALUES(?,?,?,?,?,?,?)",
+            (c.from_user.id, item_id, 1, r["price"], "upi", str(datetime.datetime.now()), item_type))
     
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ I've Paid — Send Screenshot", callback_data=f"shot:{oid}")
+    kb.button(text="❌ Cancel Order", callback_data=f"no:{oid}")
+    kb.adjust(1)
+    await c.message.answer_photo(QR, caption=f"<b>Order #{oid}</b>\n\nPlease transfer <b>₹{r['price']}</b> to the UPI ID below:\n<code>{UPI}</code>\n\nAfter payment, click the button below and send your payment screenshot.", parse_mode="HTML", reply_markup=kb.as_markup())
+
+@router.callback_query(F.data.startswith("shot:"))
+async def shot(c: CallbackQuery, state: FSMContext):
+    await state.update_data(oid=int(c.data.split(":")[1]))
+    await state.set_state("wait_shot")
+    await c.message.answer("Please send your payment screenshot now 👇")
+
+@router.message(StateFilter("wait_shot"), F.photo)
+async def got_shot(m: Message, state: FSMContext):
+    oid = (await state.get_data())["oid"]
+    q("UPDATE orders SET shot=? WHERE id=?", (m.photo[-1].file_id, oid))
+    o = q("SELECT * FROM orders WHERE id=?", (oid,), True)
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Approve", callback_data=f"ok:{oid}")
+    kb.button(text="❌ Reject", callback_data=f"rno:{oid}")
+    kb.adjust(2)
+    await m.answer("✅ Screenshot received. Verifying payment...")
+    for a in ADMIN_IDS:
+        try: await m.bot.send_photo(a, m.photo[-1].file_id, caption=f"🔔 <b>New Payment Verification</b>\nOrder #{oid}\nType: {o['item_type'].upper()}\nUser ID: {m.from_user.id}\nAmount: ₹{o['amount']}", parse_mode="HTML", reply_markup=kb.as_markup())
+        except: pass
+    await state.clear()
+
+@router.callback_query(F.data.startswith("star:"))
+async def stars(c: CallbackQuery):
+    parts = c.data.split(":")
+    item_type = parts[1]
+    item_id = int(parts[2])
+    
+    r = q(f"SELECT * FROM bundles WHERE id=?", (item_id,), True) if item_type == "b" else q(f"SELECT * FROM products WHERE id=?", (item_id,), True)
+    
+    await c.bot.send_invoice(c.from_user.id, title=r["title"], description=(r["desc"] or "Access")[:250],
+        payload=f"{item_type}:{r['id']}", provider_token="", currency="XTR",
+        prices=[LabeledPrice(label=r["title"], amount=r["stars"])])
+    await c.answer()
+
+@router.pre_checkout_query()
+async def preco(p: PreCheckoutQuery):
+    await p.answer(ok=True)
+
+@router.message(F.successful_payment)
+async def paid(m: Message):
+    payload_parts = m.successful_payment.invoice_payload.split(":")
+    item_type = payload_parts[0]
+    item_id = int(payload_parts[1])
+    
+    oid = q("INSERT INTO orders(user_id,product_id,qty,amount,method,status,created,item_type) VALUES(?,?,?,?,?,?,?,?)",
+            (m.from_user.id, item_id, 1, m.successful_payment.total_amount, "stars", "paid", str(datetime.datetime.now()), item_type))
+    await deliver(m.bot, oid, m.chat.id)
+
+async def deliver(bot, oid, chat_id):
+    o = q("SELECT * FROM orders WHERE id=?", (oid,), True)
+    if o["status"] == "delivered": return
+    
+    if o["item_type"] == "b":
+        item = q("SELECT * FROM bundles WHERE id=?", (o["product_id"],), True)
+    else:
+        item = q("SELECT * FROM products WHERE id=?", (o["product_id"],), True)
+        
+    if not item:
+        return await bot.send_message(chat_id, f"⚠️ Order #{oid} error. Please contact admin.")
+    
+    link_to_send = item["links"] if o["item_type"] == "b" else item["link"]
+
+    try:
+        await bot.send_message(chat_id, f"🔗 <b>Your Exclusive Access Links:</b>\n\n{link_to_send}", parse_mode="HTML")
+    except Exception as e: 
+        await bot.send_message(chat_id, f"Error: {e}")
+        
+    q("UPDATE orders SET status='delivered' WHERE id=?", (oid,))
+    await bot.send_message(chat_id, f"✅ Order #{oid} delivered successfully. Enjoy!")
+
+    try:
+        alert_text = f"🎉 Customer #{oid} successfully purchased <b>{item['title']}</b> ✅!\n\n🛍 Explore the store below."
+        kb_channels = InlineKeyboardBuilder()
+        kb_channels.button(text="✨ Explore Store", callback_data="shop")
+        kb_channels.button(text="🔥 View Bundles", callback_data="bundles")
+        kb_channels.adjust(1)
+
+        users = q("SELECT id FROM users")
+        for u in users:
+            try:
+                if item.get("image"):
+                    await bot.send_photo(u["id"], item["image"], caption=alert_text, parse_mode="HTML", reply_markup=kb_channels.as_markup())
+                else:
+                    await bot.send_message(u["id"], alert_text, parse_mode="HTML", reply_markup=kb_channels.as_markup())
+            except:
+                pass
+    except Exception as e:
+        print("Broadcast error:", e)
+
+@router.callback_query(F.data.startswith("ok:"))
+async def okk(c: CallbackQuery):
+    if not adm(c.from_user.id): return
+    oid = int(c.data.split(":")[1]); o = q("SELECT * FROM orders WHERE id=?", (oid,), True)
+    q("UPDATE orders SET status='paid' WHERE id=?", (oid,))
+    await deliver(c.bot, oid, o["user_id"])
+    await c.message.edit_caption(caption=(c.message.caption or "") + "\n\n✅ APPROVED & LINK SENT")
+
+@router.callback_query(F.data.startswith("rno:"))
+async def rno(c: CallbackQuery):
+    if not adm(c.from_user.id): return
+    oid = int(c.data.split(":")[1])
+    o = q("SELECT * FROM orders WHERE id=?", (oid,), True)
+    q("UPDATE orders SET status='rejected' WHERE id=?", (oid,))
+    try: await c.bot.send_message(o["user_id"], f"❌ Order #{oid} has been rejected.")
+    except: pass
+    await c.message.edit_caption(caption=(c.message.caption or "") + "\n\n❌ REJECTED")
+
+@router.callback_query(F.data.startswith("no:"))
+async def cancel(c: CallbackQuery):
+    q("UPDATE orders SET status='cancelled' WHERE id=?", (int(c.data.split(":")[1]),))
+    await c.message.edit_caption(caption="Order cancelled.")
+
+@router.callback_query(F.data == "orders")
+async def myorders(c: CallbackQuery):
+    rows = q("SELECT o.* FROM orders o WHERE o.user_id=? ORDER BY o.id DESC LIMIT 10", (c.from_user.id,))
+    if not rows: return await c.answer("No orders found.", show_alert=True)
+    t = "\n".join(f"#{r['id']} — Amount: ₹{r['amount']} — Status: <b>{r['status']}</b>" for r in rows)
+    await c.message.answer(f"<b>Your Recent Orders:</b>\n\n{t}", parse_mode="HTML")
+
+@router.callback_query(F.data == "admin")
+async def admin(c: CallbackQuery):
+    if not adm(c.from_user.id): return
+    
+    total_sales = q("SELECT COUNT(*) c FROM orders WHERE status IN ('paid','delivered')", (), True)["c"]
+    total_revenue = q("SELECT COALESCE(SUM(amount),0) s FROM orders WHERE status IN ('paid','delivered')", (), True)["s"]
+    total_users = q("SELECT COUNT(*) c FROM users", (), True)["c"]
+    
+    today = str(datetime.datetime.now().date())
+    today_rev = q("SELECT COALESCE(SUM(amount),0) s FROM orders WHERE status IN ('paid','delivered') AND created LIKE ?", (today + "%",), True)["s"]
+
+    text = (
+        "📊 <b>Automated Sales & Revenue Analytics</b>\n"
+        "──────────────────────────\n"
+        f"👥 <b>Total Store Users:</b> {total_users}\n"
+        f"📦 <b>Total Successful Sales:</b> {total_sales}\n"
+        f"💰 <b>Total Revenue:</b> ₹{total_revenue}\n"
+        f"📅 <b>Today's Revenue:</b> ₹{today_rev}\n"
+        "──────────────────────────\n\n"
+        "<b>Admin Commands:</b>\n"
+        "/addproduct — Add single group\n"
+        "/addbundle — Add combo bundle pack\n"
+        "/list — View groups inventory\n"
+        "/broadcast — Send broadcast message"
+    )
+    
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🔄 Refresh Analytics", callback_data="admin")
+    kb.button(text="⬅️ Back to Menu", callback_data="home")
+    kb.adjust(1)
+    
+    await c.message.edit_text(text, parse_mode="HTML", reply_markup=kb.as_markup())
+
+@router.message(Command("addproduct"))
+async def addp(m: Message, state: FSMContext):
+    if not adm(m.from_user.id): return
+    await state.set_state(Add.title); await m.answer("1/6 Enter Group Title:")
+
+@router.message(Add.title)
+async def a1(m: Message, state: FSMContext):
+    await state.update_data(title=m.text); await state.set_state(Add.price); await m.answer("2/6 Enter Price in INR:")
+
+@router.message(Add.price)
+async def a2(m: Message, state: FSMContext):
+    await state.update_data(price=int(m.text)); await state.set_state(Add.stars); await m.answer("3/6 Enter Price in Stars:")
+
+@router.message(Add.stars)
+async def a3(m: Message, state: FSMContext):
+    await state.update_data(stars=int(m.text)); await state.set_state(Add.desc); await m.answer("4/6 Enter Description:")
+
+@router.message(Add.desc)
+async def a4(m: Message, state: FSMContext):
+    await state.update_data(desc=m.text); await state.set_state(Add.image)
+    await m.answer("5/6 Send Demo Photo/Screenshot:", parse_mode="HTML")
+
+@router.message(Add.image, F.photo)
+async def a_image(m: Message, state: FSMContext):
+    await state.update_data(image=m.photo[-1].file_id)
+    await state.set_state(Add.link)
+    await m.answer("6/6 Send permanent Group Invite Link as text:", parse_mode="HTML")
+
+@router.message(Add.link)
+async def a6(m: Message, state: FSMContext):
+    d = await state.get_data()
+    q("INSERT INTO products(title,desc,price,stars,image,link) VALUES(?,?,?,?,?,?)", 
+      (d["title"], d["desc"], d["price"], d["stars"], d["image"], m.text))
+    await state.clear()
+    await m.answer("✅ Single Group added successfully!", parse_mode="HTML")
+
+@router.message(Command("addbundle"))
+async def add_bundle(m: Message, state: FSMContext):
+    if not adm(m.from_user.id): return
+    await state.set_state(AddBundle.title); await m.answer("🔥 1/6 Enter Combo Bundle Title:")
+
+@router.message(AddBundle.title)
+async def b1(m: Message, state: FSMContext):
+    await state.update_data(title=m.text); await state.set_state(AddBundle.price); await m.answer("🔥 2/6 Enter Bundle Price in INR:")
+
+@router.message(AddBundle.price)
+async def b2(m: Message, state: FSMContext):
+    await state.update_data(price=int(m.text)); await state.set_state(AddBundle.stars); await m.answer("🔥 3/6 Enter Bundle Price in Stars:")
+
+@router.message(AddBundle.stars)
+async def b3(m: Message, state: FSMContext):
+    await state.update_data(stars=int(m.text)); await state.set_state(AddBundle.desc); await m.answer("🔥 4/6 Enter Bundle Description:")
+
+@router.message(AddBundle.desc)
+async def b4(m: Message, state: FSMContext):
+    await state.update_data(desc=m.text); await state.set_state(AddBundle.image)
+    await m.answer("🔥 5/6 Send Bundle Demo Photo:", parse_mode="HTML")
+
+@router.message(AddBundle.image, F.photo)
+async def b_image(m: Message, state: FSMContext):
+    await state.update_data(image=m.photo[-1].file_id)
+    await state.set_state(AddBundle.links)
+    await m.answer("🔥 6/6 Send all group links together as text:", parse_mode="HTML")
+
+@router.message(AddBundle.links)
+async def b6(m: Message, state: FSMContext):
+    d = await state.get_data()
+    q("INSERT INTO bundles(title,desc,price,stars,image,links) VALUES(?,?,?,?,?,?)", 
+      (d["title"], d["desc"], d["price"], d["stars"], d["image"], m.text))
+    await state.clear()
+    await m.answer("✅ Combo Bundle Pack created successfully!", parse_mode="HTML")
+
+@router.message(Command("list"))
+async def lst(m: Message):
+    if not adm(m.from_user.id): return
+    rows = q("SELECT * FROM products")
+    bundles = q("SELECT * FROM bundles")
+    
+    t = "📋 <b>Store Inventory:</b>\n\n<b>[Single Groups]</b>\n"
+    for r in rows:
+        t += f"ID: {r['id']} | {r['title']} — ₹{r['price']}\n"
+    t += "\n<b>[Combo Bundles]</b>\n"
+    for b in bundles:
+        t += f"Bundle ID: {b['id']} | {b['title']} — ₹{b['price']}\n"
+        
+    await m.answer(t, parse_mode="HTML")
+
+@router.message(Command("broadcast"))
+async def bc(m: Message):
+    if not adm(m.from_user.id): return
+    txt = m.text.replace("/broadcast", "").strip(); n = 0
+    for u in q("SELECT id FROM users"):
+        try: await m.bot.send_message(u["id"], txt); n += 1
+        except: pass
+    await m.answer(f"Broadcast sent to {n} users.")
+
+async def main():
+    init()
+    bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    dp = Dispatcher(); dp.include_router(router)
+    app = web.Application()
+    app.router.add_get("/", lambda r: web.Response(text="alive"))
+    runner = web.AppRunner(app); await runner.setup()
+    
+    # Render-ൽ പോർട്ട് കൃത്യമായി റീഡ് ചെയ്യാൻ വേണ്ടി ഇതാണ് ഏറ്റവും സുരക്ഷിതമായ വഴി
+    port = int(os.environ.get("PORT", 8080))
+    await web.TCPSite(runner, "0.0.0.0", port).start()
+    
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
