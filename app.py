@@ -25,8 +25,7 @@ def q(sql, args=(), one=False):
 def init():
     c = sqlite3.connect(DB)
     c.executescript("""
-    CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY,title TEXT,desc TEXT,price INTEGER,stars INTEGER,image TEXT,active INTEGER DEFAULT 1);
-    CREATE TABLE IF NOT EXISTS stock(id INTEGER PRIMARY KEY,product_id INTEGER,file_id TEXT,file_type TEXT,sold INTEGER DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY,title TEXT,desc TEXT,price INTEGER,stars INTEGER,image TEXT,link TEXT,active INTEGER DEFAULT 1);
     CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY,user_id INTEGER,product_id INTEGER,qty INTEGER,amount INTEGER,method TEXT,status TEXT DEFAULT 'pending',shot TEXT,created TEXT);
     CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,name TEXT);
     """)
@@ -159,9 +158,7 @@ async def deliver(bot, oid, chat_id):
     if not product:
         return await bot.send_message(chat_id, f"⚠️ Order #{oid} error. Please contact admin.")
     
-    # Fetch the permanent unlimited link from stock table
-    stock_item = q("SELECT * FROM stock WHERE product_id=? LIMIT 1", (o["product_id"],), True)
-    link_to_send = stock_item["file_id"] if stock_item else "https://t.me/+example"
+    link_to_send = product["link"] if product["link"] else "https://t.me/+example"
 
     try:
         await bot.send_message(chat_id, f"🔗 <b>Your Private Group Invite Link:</b>\n\n{link_to_send}", parse_mode="HTML")
@@ -226,7 +223,7 @@ async def admin(c: CallbackQuery):
     if not adm(c.from_user.id): return
     total = q("SELECT COUNT(*) c FROM orders WHERE status IN ('paid','delivered')", (), True)["c"]
     rev = q("SELECT COALESCE(SUM(amount),0) s FROM orders WHERE status IN ('paid','delivered')", (), True)["s"]
-    await c.message.answer(f"<b>Admin Control Panel</b>\nTotal Sales: {total}\nTotal Revenue: ₹{rev}\n\n/addproduct — Add new group\n/list — View all groups\n/del &lt;id&gt; — Delete group\n/broadcast &lt;msg&gt; — Send broadcast message", parse_mode="HTML")
+    await c.message.answer(f"<b>Admin Control Panel</b>\nTotal Sales: {total}\nTotal Revenue: ₹{rev}\n\n/addproduct — Add new group\n/list — View all groups\n/del &lt;id&gt; — Delete group\n/clearall — Clear all database data\n/broadcast &lt;msg&gt; — Send broadcast message", parse_mode="HTML")
 
 @router.message(Command("addproduct"))
 async def addp(m: Message, state: FSMContext):
@@ -260,9 +257,8 @@ async def a_image(m: Message, state: FSMContext):
 @router.message(Add.link)
 async def a6(m: Message, state: FSMContext):
     d = await state.get_data()
-    pid = q("INSERT INTO products(title,desc,price,stars,image) VALUES(?,?,?,?,?)", 
-            (d["title"], d["desc"], d["price"], d["stars"], d["image"]))
-    q("INSERT INTO stock(product_id,file_id,file_type) VALUES(?,?,'text')", (pid, m.text))
+    q("INSERT INTO products(title,desc,price,stars,image,link) VALUES(?,?,?,?,?,?)", 
+      (d["title"], d["desc"], d["price"], d["stars"], d["image"], m.text))
     await state.clear()
     await m.answer("✅ Group added successfully with <b>Unlimited Link</b>! It is now live on the store.", parse_mode="HTML")
 
@@ -270,7 +266,7 @@ async def a6(m: Message, state: FSMContext):
 async def lst(m: Message):
     if not adm(m.from_user.id): return
     rows = q("SELECT * FROM products")
-    await m.answer("\n".join(f"#{r['id']} {r['title']} — ₹{r['price']} (Unlimited)" for r in rows) or "No groups available.")
+    await m.answer("\n".join(f"<b>#{r['id']}</b> {r['title']} — ₹{r['price']} (Unlimited)" for r in rows) or "No groups available.")
 
 @router.message(Command("del"))
 async def dele(m: Message):
@@ -279,11 +275,18 @@ async def dele(m: Message):
         parts = m.text.split()
         if len(parts) < 2: return await m.answer("⚠️ Please provide group ID. Example: `/del 1`")
         product_id = int(parts[1])
-        q("DELETE FROM stock WHERE product_id=?", (product_id,))
         q("DELETE FROM products WHERE id=?", (product_id,))
+        q("DELETE FROM orders WHERE product_id=?", (product_id,))
         await m.answer(f"✅ Group #{product_id} deleted successfully.")
     except Exception as e:
         await m.answer(f"❌ Error: {e}")
+
+@router.message(Command("clearall"))
+async def clear_all(m: Message):
+    if not adm(m.from_user.id): return
+    q("DELETE FROM products")
+    q("DELETE FROM orders")
+    await m.answer("🗑 All products and order data cleared successfully!")
 
 @router.message(Command("broadcast"))
 async def bc(m: Message):
