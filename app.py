@@ -590,7 +590,6 @@ async def save_new_price(m: Message, state: FSMContext):
         await state.clear()
         await m.answer(f"✅ Price updated successfully to ₹{new_price}!")
     except ValueError:
-        await m.save()
         await m.answer("❌ Please enter a valid number for the price.")
 
 @router.message(Command("broadcast"))
@@ -608,8 +607,10 @@ async def main():
     dp = Dispatcher()
     dp.include_router(router)
     
-    # Run polling directly as a Background Worker / Polling Bot
-    logging.info("Bot started polling successfully!")
+    # Clears old pending updates to completely fix conflict error
+    await bot.delete_webhook(drop_pending_updates=True)
+    
+    logging.info("Bot started polling successfully without conflicts!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
