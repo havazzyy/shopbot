@@ -145,4 +145,52 @@ async def send_support_to_admin(m: Message, state: FSMContext):
     user_name = m.from_user.full_name
     msg_text = m.text
     
-    kb = Inline
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✍️ Reply to User", callback_data=f"reply:{user_id}")
+    kb.adjust(1)
+    
+    for a in ADMIN_IDS:
+        try:
+            await m.bot.send_message(
+                a,
+                f"🚨 <b>New Support Message!</b>\n\n"
+                f"👤 <b>From:</b> {user_name} (ID: <code>{user_id}</code>)\n"
+                f"💬 <b>Message:</b> {msg_text}",
+                parse_mode="HTML",
+                reply_markup=kb.as_markup()
+            )
+        except:
+            pass
+            
+    await state.clear()
+    await m.answer("✅ Your message has been sent to our support team! We will get back to you soon.")
+
+@router.callback_query(F.data.startswith("reply:"))
+async def admin_reply_prompt(c: CallbackQuery, state: FSMContext):
+    if not adm(c.from_user.id): return
+    target_user_id = int(c.data.split(":")[1])
+    await state.update_data(target_user=target_user_id)
+    await state.set_state("admin_reply_wait")
+    await c.message.answer(f"✍️ Type your reply message to user ID <code>{target_user_id}</code>:", parse_mode="HTML")
+
+@router.message(StateFilter("admin_reply_wait"))
+async def admin_send_reply(m: Message, state: FSMContext):
+    if not adm(m.from_user.id): return
+    data = await state.get_data()
+    target_user_id = data.get("target_user")
+    
+    try:
+        await m.bot.send_message(
+            target_user_id,
+            f"👑 <b>Admin Support Reply:</b>\n\n{m.text}",
+            parse_mode="HTML"
+        )
+        await m.answer("✅ Reply sent successfully to the user!")
+    except Exception as e:
+        await m.answer(f"❌ Failed to send reply: {e}")
+    await state.clear()
+
+@router.callback_query(F.data == "referral")
+async def referral_menu(c: CallbackQuery):
+    user_id = c.from_user.id
+    
