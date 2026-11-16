@@ -43,6 +43,9 @@ class AddBundle(StatesGroup):
 class SupportState(StatesGroup):
     message = State()
 
+class EditPriceState(StatesGroup):
+    new_price = State()
+
 router = Router()
 adm = lambda uid: uid in ADMIN_IDS
 
@@ -430,7 +433,7 @@ async def admin(c: CallbackQuery):
         "<b>Admin Commands:</b>\n"
         "/addproduct — Add single subscription\n"
         "/addbundle — Add combo bundle pack\n"
-        "/list — View inventory\n"
+        "/list — View inventory & Manage items\n"
         "/broadcast — Send broadcast message"
     )
     
@@ -484,76 +487,3 @@ async def add_bundle(m: Message, state: FSMContext):
 
 @router.message(AddBundle.title)
 async def b1(m: Message, state: FSMContext):
-    await state.update_data(title=m.text); await state.set_state(AddBundle.price); await m.answer("🔥 2/6 Enter Bundle Price in INR:")
-
-@router.message(AddBundle.price)
-async def b2(m: Message, state: FSMContext):
-    await state.update_data(price=int(m.text)); await state.set_state(AddBundle.stars); await m.answer("🔥 3/6 Enter Bundle Price in Stars:")
-
-@router.message(AddBundle.stars)
-async def b3(m: Message, state: FSMContext):
-    await state.update_data(stars=int(m.text)); await state.set_state(AddBundle.desc); await m.answer("🔥 4/6 Enter Bundle Description:")
-
-@router.message(AddBundle.desc)
-async def b4(m: Message, state: FSMContext):
-    await state.update_data(desc=m.text); await state.set_state(AddBundle.image)
-    await m.answer("🔥 5/6 Send Bundle Demo Photo:", parse_mode="HTML")
-
-@router.message(AddBundle.image, F.photo)
-async def b_image(m: Message, state: FSMContext):
-    await state.update_data(image=m.photo[-1].file_id)
-    await state.set_state(AddBundle.links)
-    await m.answer("🔥 6/6 Send all group links together as text:", parse_mode="HTML")
-
-@router.message(AddBundle.links)
-async def b6(m: Message, state: FSMContext):
-    d = await state.get_data()
-    q("INSERT INTO bundles(title,desc,price,stars,image,links) VALUES(?,?,?,?,?,?)", 
-      (d["title"], d["desc"], d["price"], d["stars"], d["image"], m.text))
-    await state.clear()
-    await m.answer("✅ Combo Bundle Pack created successfully!", parse_mode="HTML")
-
-@router.message(Command("list"))
-async def lst(m: Message):
-    if not adm(m.from_user.id): return
-    rows = q("SELECT * FROM products")
-    bundles = q("SELECT * FROM bundles")
-    
-    t = "📋 <b>Store Inventory:</b>\n\n<b>[Subscriptions]</b>\n"
-    for r in rows:
-        t += f"ID: {r['id']} | {r['title']} — ₹{r['price']}\n"
-    t += "\n<b>[Combo Bundles]</b>\n"
-    for b in bundles:
-        t += f"Bundle ID: {b['id']} | {b['title']} — ₹{b['price']}\n"
-        
-    await m.answer(t, parse_mode="HTML")
-
-@router.message(Command("broadcast"))
-async def bc(m: Message):
-    if not adm(m.from_user.id): return
-    txt = m.text.replace("/broadcast", "").strip(); n = 0
-    for u in q("SELECT id FROM users"):
-        try: await m.bot.send_message(u["id"], txt); n += 1
-        except: pass
-    await m.answer(f"Broadcast sent to {n} users.")
-
-async def web_server():
-    app = web.Application()
-    app.router.add_get("/", lambda r: web.Response(text="Bot is alive!"))
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-
-async def main():
-    init()
-    bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    dp = Dispatcher()
-    dp.include_router(router)
-    
-    await web_server()
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
