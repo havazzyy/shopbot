@@ -1,4 +1,5 @@
 import os, sqlite3, datetime, asyncio, logging
+from aiohttp import web
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command, StateFilter
 from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery
@@ -41,9 +42,6 @@ class AddBundle(StatesGroup):
 
 class SupportState(StatesGroup):
     message = State()
-
-class EditPriceState(StatesGroup):
-    new_price = State()
 
 router = Router()
 adm = lambda uid: uid in ADMIN_IDS
@@ -432,7 +430,7 @@ async def admin(c: CallbackQuery):
         "<b>Admin Commands:</b>\n"
         "/addproduct — Add single subscription\n"
         "/addbundle — Add combo bundle pack\n"
-        "/list — View inventory & Manage items\n"
+        "/list — View inventory\n"
         "/broadcast — Send broadcast message"
     )
     
@@ -521,76 +519,14 @@ async def lst(m: Message):
     rows = q("SELECT * FROM products")
     bundles = q("SELECT * FROM bundles")
     
-    await m.answer("📋 <b>Store Inventory & Management:</b>", parse_mode="HTML")
-    
-    if rows:
-        await m.answer("<b>[Subscriptions]</b>", parse_mode="HTML")
-        for r in rows:
-            kb = InlineKeyboardBuilder()
-            kb.button(text="✏️ Edit Price", callback_data=f"edit_p:{r['id']}")
-            kb.button(text="🗑 Delete", callback_data=f"del_p:{r['id']}")
-            kb.adjust(2)
-            await m.answer(f"ID: {r['id']} | <b>{r['title']}</b> — ₹{r['price']} | ⭐ {r['stars']}", parse_mode="HTML", reply_markup=kb.as_markup())
-            
-    if bundles:
-        await m.answer("<b>[Combo Bundles]</b>", parse_mode="HTML")
-        for b in bundles:
-            kb = InlineKeyboardBuilder()
-            kb.button(text="✏️ Edit Price", callback_data=f"edit_b:{b['id']}")
-            kb.button(text="🗑 Delete", callback_data=f"del_b:{b['id']}")
-            kb.adjust(2)
-            await m.answer(f"Bundle ID: {b['id']} | <b>{b['title']}</b> — ₹{b['price']} | ⭐ {b['stars']}", parse_mode="HTML", reply_markup=kb.as_markup())
-
-@router.callback_query(F.data.startswith("del_p:"))
-async def delete_product(c: CallbackQuery):
-    if not adm(c.from_user.id): return
-    pid = int(c.data.split(":")[1])
-    q("DELETE FROM products WHERE id=?", (pid,))
-    await c.answer("✅ Product deleted successfully!", show_alert=True)
-    await c.message.edit_text(c.message.text + "\n\n❌ <b>[DELETED]</b>", parse_mode="HTML")
-
-@router.callback_query(F.data.startswith("del_b:"))
-async def delete_bundle(c: CallbackQuery):
-    if not adm(c.from_user.id): return
-    bid = int(c.data.split(":")[1])
-    q("DELETE FROM bundles WHERE id=?", (bid,))
-    await c.answer("✅ Bundle deleted successfully!", show_alert=True)
-    await c.message.edit_text(c.message.text + "\n\n❌ <b>[DELETED]</b>", parse_mode="HTML")
-
-@router.callback_query(F.data.startswith("edit_p:"))
-async def edit_product_price_prompt(c: CallbackQuery, state: FSMContext):
-    if not adm(c.from_user.id): return
-    pid = int(c.data.split(":")[1])
-    await state.update_data(edit_id=pid, edit_type="product")
-    await state.set_state(EditPriceState.new_price)
-    await c.message.answer("✏️ Enter the new price (in INR) for this subscription:")
-
-@router.callback_query(F.data.startswith("edit_b:"))
-async def edit_bundle_price_prompt(c: CallbackQuery, state: FSMContext):
-    if not adm(c.from_user.id): return
-    bid = int(c.data.split(":")[1])
-    await state.update_data(edit_id=bid, edit_type="bundle")
-    await state.set_state(EditPriceState.new_price)
-    await c.message.answer("✏️ Enter the new price (in INR) for this combo bundle:")
-
-@router.message(EditPriceState.new_price)
-async def save_new_price(m: Message, state: FSMContext):
-    if not adm(m.from_user.id): return
-    try:
-        new_price = int(m.text)
-        data = await state.get_data()
-        item_id = data["edit_id"]
-        item_type = data["edit_type"]
+    t = "📋 <b>Store Inventory:</b>\n\n<b>[Subscriptions]</b>\n"
+    for r in rows:
+        t += f"ID: {r['id']} | {r['title']} — ₹{r['price']}\n"
+    t += "\n<b>[Combo Bundles]</b>\n"
+    for b in bundles:
+        t += f"Bundle ID: {b['id']} | {b['title']} — ₹{b['price']}\n"
         
-        if item_type == "product":
-            q("UPDATE products SET price = ? WHERE id = ?", (new_price, item_id))
-        else:
-            q("UPDATE bundles SET price = ? WHERE id = ?", (new_price, item_id))
-            
-        await state.clear()
-        await m.answer(f"✅ Price updated successfully to ₹{new_price}!")
-    except ValueError:
-        await m.answer("❌ Please enter a valid number for the price.")
+    await m.answer(t, parse_mode="HTML")
 
 @router.message(Command("broadcast"))
 async def bc(m: Message):
@@ -601,16 +537,22 @@ async def bc(m: Message):
         except: pass
     await m.answer(f"Broadcast sent to {n} users.")
 
+async def web_server():
+    app = web.Application()
+    app.router.add_get("/", lambda r: web.Response(text="Bot is alive!"))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
 async def main():
     init()
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
     dp.include_router(router)
     
-    # Clears old pending updates to completely fix conflict error
-    await bot.delete_webhook(drop_pending_updates=True)
-    
-    logging.info("Bot started polling successfully without conflicts!")
+    await web_server()
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
