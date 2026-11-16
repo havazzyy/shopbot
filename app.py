@@ -487,3 +487,73 @@ async def add_bundle(m: Message, state: FSMContext):
 
 @router.message(AddBundle.title)
 async def b1(m: Message, state: FSMContext):
+    await state.update_data(title=m.text); await state.set_state(AddBundle.price); await m.answer("🔥 2/6 Enter Bundle Price in INR:")
+
+@router.message(AddBundle.price)
+async def b2(m: Message, state: FSMContext):
+    await state.update_data(price=int(m.text)); await state.set_state(AddBundle.stars); await m.answer("🔥 3/6 Enter Bundle Price in Stars:")
+
+@router.message(AddBundle.stars)
+async def b3(m: Message, state: FSMContext):
+    await state.update_data(stars=int(m.text)); await state.set_state(AddBundle.desc); await m.answer("🔥 4/6 Enter Bundle Description:")
+
+@router.message(AddBundle.desc)
+async def b4(m: Message, state: FSMContext):
+    await state.update_data(desc=m.text); await state.set_state(AddBundle.image)
+    await m.answer("🔥 5/6 Send Bundle Demo Photo:", parse_mode="HTML")
+
+@router.message(AddBundle.image, F.photo)
+async def b_image(m: Message, state: FSMContext):
+    await state.update_data(image=m.photo[-1].file_id)
+    await state.set_state(AddBundle.links)
+    await m.answer("🔥 6/6 Send all group links together as text:", parse_mode="HTML")
+
+@router.message(AddBundle.links)
+async def b6(m: Message, state: FSMContext):
+    d = await state.get_data()
+    q("INSERT INTO bundles(title,desc,price,stars,image,links) VALUES(?,?,?,?,?,?)", 
+      (d["title"], d["desc"], d["price"], d["stars"], d["image"], m.text))
+    await state.clear()
+    await m.answer("✅ Combo Bundle Pack created successfully!", parse_mode="HTML")
+
+@router.message(Command("list"))
+async def lst(m: Message):
+    if not adm(m.from_user.id): return
+    rows = q("SELECT * FROM products")
+    bundles = q("SELECT * FROM bundles")
+    
+    await m.answer("📋 <b>Store Inventory & Management:</b>", parse_mode="HTML")
+    
+    if rows:
+        await m.answer("<b>[Subscriptions]</b>", parse_mode="HTML")
+        for r in rows:
+            kb = InlineKeyboardBuilder()
+            kb.button(text="✏️ Edit Price", callback_data=f"edit_p:{r['id']}")
+            kb.button(text="🗑 Delete", callback_data=f"del_p:{r['id']}")
+            kb.adjust(2)
+            await m.answer(f"ID: {r['id']} | <b>{r['title']}</b> — ₹{r['price']} | ⭐ {r['stars']}", parse_mode="HTML", reply_markup=kb.as_markup())
+            
+    if bundles:
+        await m.answer("<b>[Combo Bundles]</b>", parse_mode="HTML")
+        for b in bundles:
+            kb = InlineKeyboardBuilder()
+            kb.button(text="✏️ Edit Price", callback_data=f"edit_b:{b['id']}")
+            kb.button(text="🗑 Delete", callback_data=f"del_b:{b['id']}")
+            kb.adjust(2)
+            await m.answer(f"Bundle ID: {b['id']} | <b>{b['title']}</b> — ₹{b['price']} | ⭐ {b['stars']}", parse_mode="HTML", reply_markup=kb.as_markup())
+
+@router.callback_query(F.data.startswith("del_p:"))
+async def delete_product(c: CallbackQuery):
+    if not adm(c.from_user.id): return
+    pid = int(c.data.split(":")[1])
+    q("DELETE FROM products WHERE id=?", (pid,))
+    await c.answer("✅ Product deleted successfully!", show_alert=True)
+    await c.message.edit_text(c.message.text + "\n\n❌ <b>[DELETED]</b>", parse_mode="HTML")
+
+@router.callback_query(F.data.startswith("del_b:"))
+async def delete_bundle(c: CallbackQuery):
+    if not adm(c.from_user.id): return
+    bid = int(c.data.split(":")[1])
+    q("DELETE FROM bundles WHERE id=?", (bid,))
+    await c.answer("✅ Bundle deleted successfully!", show_alert=True)
+    await c.
