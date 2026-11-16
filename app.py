@@ -108,4 +108,41 @@ async def home(c: CallbackQuery):
         "━━━━━━━━━━━━━━━━━━━━\n\n"
         "▸ <b>EXPLORE THE STORE</b>\n"
         "Browse our available subscriptions and choose the plan that suits you best.\n\n"
-        "
+        "▸ <b>DISCOUNTS</b>\n"
+        "Apply discount coupons or referral discounts to unlock the best available prices.\n\n"
+        "▸ <b>HELP & SUPPORT</b>\n"
+        "Facing an issue or need assistance? Our support section is here to help.\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Thank you for choosing <b>BTW</b>.\n"
+        "Enjoy a premium experience. ✦"
+    )
+    
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🛍 Explore the Store", callback_data="shop")
+    kb.button(text="🔥 Combo Bundles", callback_data="bundles")
+    kb.button(text="🎁 Discounts / Referral", callback_data="referral")
+    kb.button(text="📦 My Orders", callback_data="orders")
+    kb.button(text="🎧 Help & Support", callback_data="support")
+    if adm(c.from_user.id): kb.button(text="⚙️ Admin Panel", callback_data="admin")
+    kb.adjust(1, 2, 2, 1)
+    await c.message.edit_text(welcome_text, parse_mode="HTML", reply_markup=kb.as_markup())
+
+@router.callback_query(F.data == "support")
+async def support_menu(c: CallbackQuery, state: FSMContext):
+    kb = InlineKeyboardBuilder()
+    kb.button(text="⬅️ Back to Menu", callback_data="home")
+    kb.adjust(1)
+    await state.set_state(SupportState.message)
+    await c.message.edit_text(
+        "🎧 <b>Help & Support Section</b>\n\n"
+        "Please type your issue, question, or payment query below as a single message, and our support team will reply to you shortly.",
+        parse_mode="HTML", reply_markup=kb.as_markup()
+    )
+
+@router.message(SupportState.message)
+async def send_support_to_admin(m: Message, state: FSMContext):
+    user_id = m.from_user.id
+    user_name = m.from_user.full_name
+    msg_text = m.text
+    
+    kb = Inline
